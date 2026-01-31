@@ -10,16 +10,19 @@
 
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
+#include "main.h"
 
 xr_input_t xrInput;
 
 static XrActionSet actionSet = XR_NULL_HANDLE;
 static XrAction palmPoseAction = XR_NULL_HANDLE;
 static XrAction vibrateAction = XR_NULL_HANDLE;
+static XrAction clickScreenAction = XR_NULL_HANDLE;
 static float vibrate[2] = {0, 0};
 static XrPath handPaths[2];
 static XrSpace handPoseSpace[2];
 static XrActionStatePose handPoseState[2] = {{XR_TYPE_ACTION_STATE_POSE}, {XR_TYPE_ACTION_STATE_POSE}};
+XrActionStateBoolean clickScreenState[2] = {{XR_TYPE_ACTION_STATE_BOOLEAN}, {XR_TYPE_ACTION_STATE_BOOLEAN}};
 
 bool createActionSet() {
     XrActionSetCreateInfo actionSetCreateInfo = {XR_TYPE_ACTION_SET_CREATE_INFO};
@@ -46,6 +49,7 @@ bool createDefaultActions() {
     XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/right", &handPaths[1]), false);
     createAction(&palmPoseAction, "palm-pose", "Palm Pose",XR_ACTION_TYPE_POSE_INPUT, 2);
     createAction(&vibrateAction, "vibrate", "Vibrate", XR_ACTION_TYPE_VIBRATION_OUTPUT, 2);
+    createAction(&clickScreenAction, "clickscreen", "Click Screen", XR_ACTION_TYPE_BOOLEAN_INPUT, 2);
     return true;
 }
 
@@ -67,20 +71,27 @@ bool createSuggestedBindings() {
     XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/left/output/haptic", &vibratePath[0]), false);
     XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/right/output/haptic", &vibratePath[1]), false);
 
-    const XrActionSuggestedBinding bindings[4] = {
-        palmPoseAction, posePath[0],
-        palmPoseAction, posePath[1],
+    XrPath clickScreenPath[2];
+    XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/left/input/trigger/value", &clickScreenPath[0]), false);
+    XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/right/input/trigger/value", &clickScreenPath[1]), false);
 
-        vibrateAction, vibratePath[0],
-        vibrateAction, vibratePath[1]
+    const XrActionSuggestedBinding bindings[6] = {
+            palmPoseAction, posePath[0],
+            palmPoseAction, posePath[1],
+
+            vibrateAction, vibratePath[0],
+            vibrateAction, vibratePath[1],
+
+            clickScreenAction, clickScreenPath[0],
+            clickScreenAction, clickScreenPath[1]
     };
 
     XrPath controllerPath;
-    XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/interaction_profiles/khr/simple_controller", &controllerPath), false);
+    XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/interaction_profiles/oculus/touch_controller", &controllerPath), false);
     if (controllerPath == XR_NULL_PATH) {
         LOGE("Controller binding NULL: %s", __func__ );
     }
-    suggestBindings(controllerPath, bindings, 4);
+    suggestBindings(controllerPath, bindings, 6);
     return true;
 }
 
@@ -160,6 +171,15 @@ bool pollActions(XrTime predictedTime) {
         hapticActionInfo.action = vibrateAction;
         hapticActionInfo.subactionPath = handPaths[i];
         XR_FAILRETURN(xrApplyHapticFeedback(xrinfo.session, &hapticActionInfo, (XrHapticBaseHeader *)&vibration), false);
+    }
+
+    actionStateGetInfo.action = clickScreenAction;
+    for (int i = 0; i < 2; i++) {
+        actionStateGetInfo.subactionPath = handPaths[i];
+        XR_FAILRETURN(xrGetActionStateBoolean(xrinfo.session, &actionStateGetInfo, &clickScreenState[i]), false);
+        if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync) {
+            clickScreenAtPosition(globalEnv, 1, 1);
+        }
     }
 
     return true;

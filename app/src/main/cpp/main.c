@@ -24,10 +24,13 @@
 static AAssetManager *g_assetManager;
 static android_jni_data_t jniData;
 static jclass mainActivityClass;
+static jclass xrActivityInputClass;
 static jmethodID MainActivity_createSurfaceTexture;
 static jmethodID MainActivity_updateSurfaceTexture;
 static jmethodID MainActivity_performSystemExit;
+static jmethodID XRActivityInput_clickScreenAtPosition;
 static bool shouldStopJni;
+JNIEnv *globalEnv;
 
 static void performSystemExit(JNIEnv *env) {
     (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_performSystemExit);
@@ -39,6 +42,10 @@ static void updateSurfaceTexture(JNIEnv *env) {
 
 static bool createSurfaceTexture(JNIEnv *env, int textureId) {
     return (*env)->CallStaticBooleanMethod(env, mainActivityClass, MainActivity_createSurfaceTexture, textureId);
+}
+
+void clickScreenAtPosition(JNIEnv *env, int x, int y) {
+    (*env)->CallStaticVoidMethod(env, xrActivityInputClass, XRActivityInput_clickScreenAtPosition, x, y);
 }
 
 struct event_state {
@@ -98,10 +105,9 @@ static bool poll_events(struct event_state *state) {
 
 static void* main_loop(void* data) {
     (void)data;
-    JNIEnv *env;
-    (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &env, NULL);
+    (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &globalEnv, NULL);
     if(!initRenderer(g_assetManager)) return NULL;
-    if(!createSurfaceTexture(env, getRenderTargetName())) goto destroy_gles;
+    if(!createSurfaceTexture(globalEnv, getRenderTargetName())) goto destroy_gles;
     if(!xriInitialize(&jniData)) goto destroy_gles;
     createActionSet();
     createDefaultActions();
@@ -125,7 +131,7 @@ static void* main_loop(void* data) {
             continue;
         }
         if(!beginFrame(&state)) goto exit;
-        updateSurfaceTexture(env);
+        updateSurfaceTexture(globalEnv);
         renderFrame(&state);
         endFrame(&state);
     }
@@ -137,20 +143,23 @@ static void* main_loop(void* data) {
     destroy_gles:
     destroyOpenGLES();
 
-    performSystemExit(env);
+    performSystemExit(globalEnv);
 
     pthread_exit(NULL);
 }
 
 JNIEXPORT void JNICALL
-Java_com_qcxr_questcraft_MainActivity_start(JNIEnv *env, jobject thiz, jobject assetManager) {
+Java_com_qcxr_questcraft_MainActivity_start(JNIEnv *env, jobject mainActivity, jobject xrActivityInput, jobject assetManager) {
     (*env)->GetJavaVM(env, &jniData.applicationVm);
-    jniData.applicationActivity = (*env)->NewGlobalRef(env, thiz);
+    jniData.applicationActivity = (*env)->NewGlobalRef(env, mainActivity);
 
-    mainActivityClass = (*env)->NewGlobalRef(env, (*env)->GetObjectClass(env, thiz));
+    mainActivityClass = (*env)->NewGlobalRef(env, (*env)->GetObjectClass(env, mainActivity));
+    xrActivityInputClass = (*env)->NewGlobalRef(env, (*env)->GetObjectClass(env, xrActivityInput));
+
     MainActivity_createSurfaceTexture = (*env)->GetStaticMethodID(env, mainActivityClass, "createSurfaceTexture", "(I)Z");
     MainActivity_updateSurfaceTexture = (*env)->GetStaticMethodID(env, mainActivityClass, "updateSurfaceTexture", "()V");
     MainActivity_performSystemExit = (*env)->GetStaticMethodID(env, mainActivityClass, "performSystemExit", "()V");
+    XRActivityInput_clickScreenAtPosition = (*env)->GetStaticMethodID(env, xrActivityInputClass, "clickScreenAtPosition","(II)V");
 
     g_assetManager = AAssetManager_fromJava(env, assetManager);
 
