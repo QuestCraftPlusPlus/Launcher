@@ -1,9 +1,11 @@
 //
 // Created by maks on 03.12.2024.
 //
+
+#define VMA_IMPLEMENTATION
+#include "vk_init.h"
 #include "xr_include.h"
 #include "xr_init.h"
-#include "gles_init.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -12,7 +14,6 @@
 #include "log.h"
 
 xr_state_t xrinfo;
-
 
 static void loaderInitialize(android_jni_data_t* jniData) {
     PFN_xrInitializeLoaderKHR initializeLoader;
@@ -41,7 +42,7 @@ typedef XrResult (*pXrRequestDisplayRefreshRateFB)(
 static bool createXrInstance(android_jni_data_t* jniData) {
 
     static const char* instanceExtensions[] = {
-            XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+            XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
             XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
             XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME
     };
@@ -71,41 +72,35 @@ static bool createXrInstance(android_jni_data_t* jniData) {
     return false;
 }
 
-static bool getXrGraphicsRequirements(XrGraphicsRequirementsOpenGLESKHR* graphicsRequirements) {
-    PFN_xrGetOpenGLESGraphicsRequirementsKHR xrGetOpenGlesGraphicsRequirements;
-    XR_FAILRETURN(
-            xrGetInstanceProcAddr(xrinfo.instance,"xrGetOpenGLESGraphicsRequirementsKHR",(PFN_xrVoidFunction*)&xrGetOpenGlesGraphicsRequirements),
-            false);
-    XR_FAILRETURN(xrGetOpenGlesGraphicsRequirements(xrinfo.instance, xrinfo.systemId, graphicsRequirements), false);
+static bool getXrGraphicsRequirements(XrGraphicsRequirementsVulkan2KHR* graphicsRequirements) {
+    PFN_xrGetVulkanGraphicsRequirementsKHR xrGetVulkanGraphicsRequirements;
+    XR_FAILRETURN(xrGetInstanceProcAddr(xrinfo.instance,"xrGetVulkanGraphicsRequirementsKHR",(PFN_xrVoidFunction*)&xrGetVulkanGraphicsRequirements), false);
+    XR_FAILRETURN(xrGetVulkanGraphicsRequirements(xrinfo.instance, xrinfo.systemId, graphicsRequirements), false);
     return true;
 }
 
-static bool initializeGLESSession() {
-    XrGraphicsRequirementsOpenGLESKHR graphicsRequirements = {XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR};
+static bool initializeVKSession() {
+    XrGraphicsRequirementsVulkan2KHR graphicsRequirements = {XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
 
     if(!getXrGraphicsRequirements(&graphicsRequirements)) {
         LOGE("%s", "Failed to detect OpenXR runtime version requirements");
         return false;
     }
 
-    GLint major, minor;
-    glGetIntegerv(GL_MAJOR_VERSION, &major);
-    glGetIntegerv(GL_MINOR_VERSION, &minor);
-    const XrVersion currentApiVersion = XR_MAKE_VERSION(major, minor, 0);
+    initVulkan(xrinfo.instance, xrinfo.systemId);
 
-    if(graphicsRequirements.minApiVersionSupported > currentApiVersion) {
-        LOGE("OpenGL ES version %i.%i not supported by OpenXR runtime", major, minor);
-        return false;
-    }
-
-    XrGraphicsBindingOpenGLESAndroidKHR graphicsBindingOpenGLES = {XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
-    graphicsBindingOpenGLES.display = egl_info.display;
-    graphicsBindingOpenGLES.context = egl_info.context;
-    graphicsBindingOpenGLES.config = egl_info.config;
+    XrGraphicsBindingVulkan2KHR graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
+    graphicsBinding.instance = vkinfo.instance;
+    graphicsBinding.physicalDevice = vkinfo.physicalDevice;
+    graphicsBinding.device = vkinfo.device;
+    graphicsBinding.queueFamilyIndex = vkinfo.queueFamilyIndex;
+    graphicsBinding.queueIndex = 0;
 
     XrSessionCreateInfo sessionCreateInfo = {XR_TYPE_SESSION_CREATE_INFO};
-    sessionCreateInfo.next = &graphicsBindingOpenGLES;
+    sessionCreateInfo.next = &graphicsBinding;
     sessionCreateInfo.systemId = xrinfo.systemId;
+
+    xrCreateSession(xrinfo.instance, &sessionCreateInfo, &xrinfo.session);
 
     XR_FAILRETURN(xrCreateSession(xrinfo.instance, &sessionCreateInfo, &xrinfo.session), false);
     return true;
@@ -161,7 +156,7 @@ static bool createViewSurface() {
     XrSwapchainCreateInfo swapchainCreateInfo = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
     swapchainCreateInfo.usageFlags =
             XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchainCreateInfo.format = GL_SRGB8_ALPHA8;
+    swapchainCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
     swapchainCreateInfo.width = width;
     swapchainCreateInfo.height = height;
     swapchainCreateInfo.faceCount = 1;
@@ -175,34 +170,33 @@ static bool createViewSurface() {
     XrResult xrEnumerateSwapchainImages_result = xrEnumerateSwapchainImages(swapchain, 0, &imageCount, NULL);
     // Even if xrEnumerateSwapchainImages fails, this will still initialize with a size of 0
     // It wouldn't matter though since if the call fails we go straight to resource cleanup
-    XrSwapchainImageOpenGLESKHR glesImages[imageCount];
-
-    XR_FAILRETURN(xrEnumerateSwapchainImages_result, false);
-
+    XrSwapchainImageVulkan2KHR* vkImages = malloc(imageCount * sizeof(XrSwapchainImageVulkan2KHR));
     for (uint32_t j = 0; j < imageCount; j++) {
-        XrSwapchainImageOpenGLESKHR defaultImage = {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR};
-        memcpy(&glesImages[j], &defaultImage, sizeof(XrSwapchainImageOpenGLESKHR));
+        vkImages[j].type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR;
+        vkImages[j].next = NULL;
     }
 
-    XR_FAILGOTO(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount,
-                                           (XrSwapchainImageBaseHeader *) &glesImages), free_swapchain);
+    XR_FAILGOTO(xrEnumerateSwapchainImages(xrinfo.renderTarget.swapchain, imageCount, &imageCount,
+                                           (XrSwapchainImageBaseHeader *) vkImages), free_images);
 
-    xrinfo.renderTarget.swapchainTextures = calloc(imageCount, sizeof(GLuint));
-
-    xrinfo.renderTarget.swapchain = swapchain;
+    xrinfo.renderTarget.swapchainImages = malloc(imageCount * sizeof(VkImage));
+    xrinfo.renderTarget.swapchainImageCount = imageCount;
     xrinfo.renderTarget.width = width;
     xrinfo.renderTarget.height = height;
-    xrinfo.renderTarget.swapchainTextureCount = imageCount;
+
     for (uint32_t j = 0; j < imageCount; j++) {
-        xrinfo.renderTarget.swapchainTextures[j] = glesImages[j].image;
+        xrinfo.renderTarget.swapchainImages[j] = vkImages[j].image;
+        LOGI("Vulkan Swapchain Image %i: %p", j, (void*)xrinfo.renderTarget.swapchainImages[j]);
     }
+
+    free(vkImages);
     xrinfo.nViews = viewCount;
     xrinfo.dominantHand = 1; // TODO: put this somewhere else, load user preferences and see there.
 
     return true;
-    free_swapchain:
+    free_images:
+    free(vkImages);
     xrDestroySwapchain(xrinfo.renderTarget.swapchain);
-    return false;
 }
 
 bool xriStartSession() {
@@ -218,11 +212,11 @@ void xriEndSession() {
 }
 
 bool xriInitSession() {
-    if(!initializeGLESSession()) return false;
+    if(!initializeVKSession()) return false;
     if(!createReferenceSpace()) goto fail;
     if(!createViewSurface()) goto fail;
-    for(int j = 0; j < xrinfo.renderTarget.swapchainTextureCount; j++) {
-        LOGI("Swapchain texture: %i", xrinfo.renderTarget.swapchainTextures[j]);
+    for(int j = 0; j < xrinfo.renderTarget.swapchainImageCount; j++) {
+        LOGI("Swapchain texture: %lld", (long long)xrinfo.renderTarget.swapchainImages[j]);
     }
     setRefreshRate();
     xrinfo.hasSession = true;
@@ -234,8 +228,8 @@ bool xriInitSession() {
 
 void xriFreeSession() {
     xrDestroySession(xrinfo.session);
-    void* swArray = xrinfo.renderTarget.swapchainTextures;
-    xrinfo.renderTarget.swapchainTextures = NULL;
+    void* swArray = xrinfo.renderTarget.swapchainImages;
+    xrinfo.renderTarget.swapchainImages = NULL;
     free(swArray);
     xrinfo.hasSession = false;
 }

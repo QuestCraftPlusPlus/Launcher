@@ -6,12 +6,12 @@
 #define QCXR_KTX_TEXTURE_H
 
 #include "asset_buffer_read.h"
+#include "vk_init.h"
+#include "renderer_types.h"
 
 #include <android/asset_manager.h>
-#include <GLES2/gl2.h>
 #include <stdbool.h>
 
-
-bool loadKtx(asset_info_t* uploadInfo, GLuint* texture, GLenum* target);
+bool loadKtx(asset_info_t *uploadInfo, vk_texture_t *outTexture);
 
 #endif //QCXR_KTX_TEXTURE_H

@@ -1,7 +1,7 @@
 
 #include "xr_init.h"
 #include "xr_render.h"
-#include "gles_init.h"
+#include "vk_init.h"
 #include "renderer.h"
 
 #include <pthread.h>
@@ -100,9 +100,7 @@ static void* main_loop(void* data) {
     (void)data;
     JNIEnv *env;
     (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &env, NULL);
-    if(!initRenderer(g_assetManager)) return NULL;
-    if(!createSurfaceTexture(env, getRenderTargetName())) goto destroy_gles;
-    if(!xriInitialize(&jniData)) goto destroy_gles;
+    if(!xriInitialize(&jniData)) goto fatal_exit;
     createActionSet();
     createDefaultActions();
     createSuggestedBindings();
@@ -132,10 +130,10 @@ static void* main_loop(void* data) {
 
     exit:
     freeBeginEndState(&state);
+    destroyVulkan();
     free_xri:
     xriFree();
-    destroy_gles:
-    destroyOpenGLES();
+    fatal_exit:
 
     performSystemExit(env);
 

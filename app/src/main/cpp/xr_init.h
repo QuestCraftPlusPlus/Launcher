@@ -7,13 +7,12 @@
 #include "xr_include.h"
 #include <stdbool.h>
 #include <jni.h>
-#include <GLES3/gl3.h>
 
 typedef struct {
     uint32_t width, height;
     XrSwapchain swapchain;
-    GLuint swapchainTextureCount;
-    GLuint* swapchainTextures;
+    uint32_t swapchainImageCount;
+    VkImage* swapchainImages;
 } render_target_t;
 
 typedef struct {

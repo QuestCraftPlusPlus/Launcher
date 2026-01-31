@@ -43,7 +43,7 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/openxr_loader_for_android-1.1.43.aar"))
+    implementation(files("libs/openxr_loader_for_android-1.1.51.aar"))
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.constraintlayout)

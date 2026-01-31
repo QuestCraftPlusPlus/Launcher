@@ -2,22 +2,103 @@
 // Created by maks on 05.12.2024.
 //
 
+// Don't look too closely at this file.
+
 #include "ktx_texture.h"
-#include "gl_safepoint.h"
+#include "vk_init.h"
 #include <ktx.h>
+#include <ktxvulkan.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
+#include "math_helper.h"
 
-bool loadKtx(asset_info_t* uploadInfo, GLuint* texture, GLenum* target) {
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
+
+typedef struct {
+    VmaAllocation allocation;
+    VkDeviceSize mapSize;
+} AllocationInfo;
+
+typedef struct {
+    uint64_t key;
+    AllocationInfo value;
+} AllocationMap;
+
+AllocationMap* gAllocationTable = NULL;
+uint64_t gNextId = 1;
+uint64_t KtxVmaAlloc(VkMemoryAllocateInfo* allocInfo, VkMemoryRequirements* memReq, uint64_t* pageCount) {
+    VmaAllocationCreateInfo vmaAllocInfo = {0};
+    if ((vkinfo.cachedMemProps.memoryTypes[allocInfo->memoryTypeIndex].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
+        (vkinfo.cachedMemProps.memoryTypes[allocInfo->memoryTypeIndex].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+        vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    } else {
+        vmaAllocInfo.flags = VMA_MEMORY_USAGE_GPU_ONLY;
+    }
+    vmaAllocInfo.memoryTypeBits = memReq->memoryTypeBits;
+
+    VmaAllocation allocation;
+    VkResult result = vmaAllocateMemory(vkinfo.allocator, memReq, &vmaAllocInfo, &allocation, NULL);
+    if (result != VK_SUCCESS)
+    {
+        return 0ull;
+    }
+
+    AllocationInfo alloc = {
+        allocation,
+        memReq->size
+    };
+
+    uint64_t id = gNextId++;
+    hmput(gAllocationTable, id, alloc);
+    *pageCount = 1ull;
+
+    return id;
+}
+
+VkResult KtxVmaBindBuffer(VkBuffer buffer, uint64_t allocId) {
+    return vmaBindBufferMemory(vkinfo.allocator, hmget(gAllocationTable, allocId).allocation, buffer);
+}
+
+VkResult KtxVmaBindImage(VkImage image, uint64_t allocId) {
+    return vmaBindImageMemory(vkinfo.allocator, hmget(gAllocationTable, allocId).allocation, image);
+}
+
+VkResult KtxVmaMapMemory(uint64_t allocId, uint64_t pageNumber, VkDeviceSize* mapLength, void** dataPtr) {
+    AllocationInfo alloc = hmget(gAllocationTable, allocId);
+    *mapLength = alloc.mapSize;
+    return vmaMapMemory(vkinfo.allocator, alloc.allocation, dataPtr);
+}
+
+void KtxVmaUnmapMemory(uint64_t allocId, uint64_t pageNumber) {
+    vmaUnmapMemory(vkinfo.allocator, hmget(gAllocationTable, allocId).allocation);
+}
+
+void KtxVmaFreeMemory(uint64_t allocId) {
+    vmaFreeMemory(vkinfo.allocator, hmget(gAllocationTable, allocId).allocation);
+    hmdel(gAllocationTable, allocId);
+}
+
+static ktxVulkanTexture_subAllocatorCallbacks callbacks = {
+        .allocMemFuncPtr = KtxVmaAlloc,
+        .bindBufferFuncPtr = KtxVmaBindBuffer,
+        .bindImageFuncPtr = KtxVmaBindImage,
+        .memoryMapFuncPtr = KtxVmaMapMemory,
+        .memoryUnmapFuncPtr = KtxVmaUnmapMemory,
+        .freeMemFuncPtr = KtxVmaFreeMemory
+};
+
+bool loadKtx(asset_info_t* uploadInfo, vk_texture_t* outTexture) {
     off64_t size;
     void* buffer = readAssetToBuffer(uploadInfo, &size);
     if(buffer == NULL) {
         return NULL;
     }
 
-    GL_SAFEPOINT;
     ktxTexture* ktxTexture = NULL;
     if(ktxTexture_CreateFromMemory(
             (const ktx_uint8_t *) buffer, (ktx_size_t) size,
@@ -35,25 +116,23 @@ bool loadKtx(asset_info_t* uploadInfo, GLuint* texture, GLenum* target) {
             return false;
         }
     }
-    glGenTextures(1, texture);
-    GLenum glError = glGetError();
-    ktx_error_code_e uploadError = ktxTexture_GLUpload(ktxTexture, texture, target, &glError);
+
+    ktxVulkanDeviceInfo deviceInfo = {0};
+    ktxVulkanDeviceInfo_Construct(
+        &deviceInfo,
+        vkinfo.physicalDevice,
+        vkinfo.device,
+        vkinfo.graphicsQueue,
+        vkinfo.commandPool,
+        NULL
+    );
+
+    ktxVulkanTexture out = {0};
+
+    ktxTexture_VkUploadEx_WithSuballocator(ktxTexture, &deviceInfo, &out,
+                                           VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                           &callbacks);
     ktxTexture_Destroy(ktxTexture);
-    free(buffer);
-    if(uploadError == KTX_SUCCESS) return true;
-    glDeleteTextures(1, texture);
-    switch(uploadError) {
-        case KTX_GL_ERROR:
-            LOGE("Failed to upload ktxTexture \"%s\" into OpenGL (error %x)", uploadInfo->path, uploadError);
-            return false;
-        case KTX_UNSUPPORTED_TEXTURE_TYPE:
-            LOGE("KTX library does not support texture type of ktxTexture \"%s\"", uploadInfo->path);
-            return false;
-        case KTX_INVALID_VALUE:
-            LOGE("KTX \"%s\" invalid value", uploadInfo->path);
-            return false;
-        default:
-            LOGE("ktxTexture \"%s\" upload error %i", uploadInfo->path, uploadError);
-            return false;
-    }
+    ktxVulkanDeviceInfo_Destruct(&deviceInfo);
+
 }

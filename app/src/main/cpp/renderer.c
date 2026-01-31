@@ -8,15 +8,12 @@
 #include "singlecolor_program.h"
 #include "asset_buffer_read.h"
 #include "ktx_texture.h"
-#include "gl_safepoint.h"
+#include "vk_init.h"
 #include "xr_init.h"
-#include "multiview_detect.h"
-#include "gles_init.h"
 #include "xr_linear_algebra.h"
 #include "xr_input.h"
+#include "renderer_types.h"
 
-#include <GLES3/gl32.h>
-#include <GLES2/gl2ext.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -24,78 +21,139 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 
-typedef struct {
-    GLuint vbo;
-    GLuint vao;
-    GLuint program;
-    GLenum drawMode;
-    GLuint elementCount;
-} model_t;
-
-typedef struct {
-    GLuint name;
-    GLenum target;
-} texture_t;
+//typedef struct {
+//    GLuint vbo;
+//    GLuint vao;
+//    GLuint program;
+//    GLenum drawMode;
+//    GLuint elementCount;
+//} model_t;
+//
+//typedef struct {
+//    GLuint name;
+//    GLenum target;
+//} texture_t;
+//
+//struct {
+//    texture_t atlas, light, surface;
+//    model_t worldModel, targetRectModel, leftControllerRay, rightControllerRay;
+//    world_model_render_program_t worldProgram;
+//    rendertarget_blit_render_program_t blitProgram;
+//    singlecolor_render_program_t singlecolorProgram;
+//    XrExtent2Di depthSize;
+//    GLuint framebuffer, depthOutput, matrixBuffer;
+//} rs;
 
 struct {
-    texture_t atlas, light, surface;
-    model_t worldModel, targetRectModel, leftControllerRay, rightControllerRay;
-    world_model_render_program_t worldProgram;
-    rendertarget_blit_render_program_t blitProgram;
-    singlecolor_render_program_t singlecolorProgram;
-    XrExtent2Di depthSize;
-    GLuint framebuffer, depthOutput, matrixBuffer;
-} rs;
+    VkPipeline worldPipeline;
+    VkPipeline blitPipeline;
+    VkPipeline linePipeline;
+    VkPipelineLayout pipelineLayout;
+
+    vk_model_t worldModel;
+    vk_model_t targetRectModel;
+    vk_model_t leftRay;
+    vk_model_t rightRay;
+
+    vk_texture_t atlas;
+    vk_texture_t light;
+
+    VkBuffer uniformBuffer;
+    VkDeviceMemory uniformMemory;
+
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorSet descriptorSet;
+
+    VkRenderPass renderPass;
+    VkFramebuffer* framebuffers;
+} vk_rs;
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "ConstantParameter"
-static bool loadTexture(GLenum target, texture_t* texture, asset_info_t * uploadInfo) {
-    texture->target = target;
-    return loadKtx(uploadInfo, &texture->name, &texture->target);
+static bool loadTexture(vk_texture_t* texture, asset_info_t* uploadInfo) {
+    return loadKtx(uploadInfo, texture);
 }
 #pragma clang diagnostic pop
 
 static bool createSurfaceTextureId() {
-    GL_SAFEPOINT;
-    glGenTextures(1, &rs.surface.name);
-    glBindTexture(GL_TEXTURE_EXTERNAL_OES, rs.surface.name);
-    rs.surface.target = GL_TEXTURE_EXTERNAL_OES;
-    GL_RETURN(true, false, "Failed to create external texture for render target: %x", error);
+//    glGenTextures(1, &rs.surface.name);
+//    glBindTexture(GL_TEXTURE_EXTERNAL_OES, rs.surface.name);
+//    rs.surface.target = GL_TEXTURE_EXTERNAL_OES;
+    // euhguhguherghureguhrguu
+    return false;
 }
 
 static bool loadTextures(AAssetManager* assetManager) {
     asset_info_t atexUploadInfo = {assetManager, "atlas_texture.ktx"};
     asset_info_t ltexUploadInfo = {assetManager, "light_texture.ktx"};
-    return loadTexture(GL_TEXTURE_2D, &rs.atlas, &atexUploadInfo) &&
-           loadTexture(GL_TEXTURE_2D, &rs.light, &ltexUploadInfo);
+    return loadTexture(&vk_rs.atlas, &atexUploadInfo) &&
+           loadTexture(&vk_rs.light, &ltexUploadInfo);
 }
 
-static bool initWorldModelDrawLayout(model_t *model, size_t modeLength, const world_model_render_program_t program) {
-    GL_SAFEPOINT;
-    glGenVertexArrays(1, &model->vao);
-    glBindVertexArray(model->vao);
+static bool initWorldModelDrawLayout(vk_model_t *model, size_t modelLength, const world_model_render_program_t program) {
+    VkVertexInputBindingDescription bindingDescription = {
+            .binding = 0,
+            .stride = 8 * sizeof(float), // 3 (pos) + 4 (tex/light) + 1 (pad) (align to 32)
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+    };
+    VkVertexInputAttributeDescription attributeDescriptions[2];
+    attributeDescriptions[0] = (VkVertexInputAttributeDescription){
+        .binding = 0,
+        .location = 0,
+        .format = VK_FORMAT_R32G32B32_SFLOAT,
+        .offset = 0
+    };
+    attributeDescriptions[1] = (VkVertexInputAttributeDescription){
+            .binding = 0,
+            .location = 1,
+            .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = 3 * sizeof(float)
+    };
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &bindingDescription,
+            .vertexAttributeDescriptionCount = 2,
+            .pVertexAttributeDescriptions = attributeDescriptions
+    };
 
-    glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
+    model->vertexCount = (uint32_t)(modelLength / (8 * sizeof(float)));
 
-    glEnableVertexAttribArray(program.v.position);
-    glEnableVertexAttribArray(program.v.texAndLightCoord);
+    VkBufferCreateInfo bufferInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = modelLength,
+            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    VmaAllocationCreateInfo allocInfo = {
+            .usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT
+    };
+    VmaAllocationInfo allocationInfo;
+    VK_FAILRETURN(vmaCreateBuffer(vkinfo.allocator, &bufferInfo, &allocInfo, &model->buffer, &model->allocation, &allocationInfo), false);
 
-    GLsizei vertexSize = 8 * sizeof(GLfloat);
-    const void* positionOffset = (const void*)(0 * sizeof(GLfloat));
-    const void* texLightOffset = (const void*)(3 * sizeof(GLfloat));
-
-    glVertexAttribPointer(program.v.position, 3, GL_FLOAT, GL_FALSE, vertexSize, positionOffset);
-    glVertexAttribPointer(program.v.texAndLightCoord, 4, GL_FLOAT, GL_FALSE, vertexSize, texLightOffset);
-
-    model->program = program.name;
-    model->elementCount = modeLength / vertexSize;
-    LOGI("MDDL element count: %i size %lu", model->elementCount, modeLength);
-
-    GL_RETURN(true, false, "initWorldModelDrawLayout failed: %x", error);
+//    glGenVertexArrays(1, &model->vao);
+//    glBindVertexArray(model->vao);
+//
+//    glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
+//
+//    glEnableVertexAttribArray(program.v.position);
+//    glEnableVertexAttribArray(program.v.texAndLightCoord);
+//
+//    GLsizei vertexSize = 8 * sizeof(GLfloat);
+//    const void* positionOffset = (const void*)(0 * sizeof(GLfloat));
+//    const void* texLightOffset = (const void*)(3 * sizeof(GLfloat));
+//
+//    glVertexAttribPointer(program.v.position, 3, GL_FLOAT, GL_FALSE, vertexSize, positionOffset);
+//    glVertexAttribPointer(program.v.texAndLightCoord, 4, GL_FLOAT, GL_FALSE, vertexSize, texLightOffset);
+//
+//    model->program = program.name;
+//    model->elementCount = modeLength / vertexSize;
+    LOGI("MDDL element count: %i size %lu", model->vertexCount, modelLength);
 }
 
 static bool initTvModelDrawLayout(model_t *model, size_t modeLength, const rendertarget_blit_render_program_t program) {
-    GL_SAFEPOINT;
     glGenVertexArrays(1, &model->vao);
     glBindVertexArray(model->vao);
 
@@ -114,12 +172,9 @@ static bool initTvModelDrawLayout(model_t *model, size_t modeLength, const rende
     model->program = program.name;
     model->elementCount = modeLength / vertexSize;
     LOGI("MDDL element count: %i size %lu", model->elementCount, modeLength);
-
-    GL_RETURN(true, false, "initTvModelDrawLayout failed: %x", error);
 }
 
 static bool initLineModelDrawLayout(model_t *model, size_t modeLength, const singlecolor_render_program_t program) {
-    GL_SAFEPOINT;
     glGenVertexArrays(1, &model->vao);
     glBindVertexArray(model->vao);
 
@@ -138,13 +193,10 @@ static bool initLineModelDrawLayout(model_t *model, size_t modeLength, const sin
     model->program = program.name;
     model->elementCount = modeLength / vertexSize;
     LOGI("MDDL element count: %i size %lu", model->elementCount, modeLength);
-
-    GL_RETURN(true, false, "initLineModelDrawLayout failed: %x", error);
 }
 
 static bool createLineModel(model_t *model) {
     size_t modelLength = sizeof(GLfloat) * 12;
-    GL_SAFEPOINT;
     glGenBuffers(1, &model->vbo);
     glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) modelLength, NULL, GL_DYNAMIC_DRAW);
@@ -182,18 +234,15 @@ static bool loadModelDrawData(model_t* model, asset_info_t* assetInfo, off64_t *
         LOGE("Failed to allocate model asset buffer");
         return false;
     }
-    GL_SAFEPOINT;
     glGenBuffers(1, &model->vbo);
     glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) length, buffer, GL_STATIC_DRAW);
     *size = length;
     free(buffer);
     model->drawMode = GL_TRIANGLES;
-    GL_RETURN(true, false, "loadModelDrawData failed: %x", error);
 }
 
 static void assignTextureUnit(GLenum textureUnit, GLuint samplerIndex, const texture_t texture) {
-    GL_SAFEPOINT;
     LOGI("TMU assign: %i %i (%x %i)", textureUnit - GL_TEXTURE0, samplerIndex, texture.target, texture.name);
     glActiveTexture(textureUnit);
     glBindTexture(texture.target, texture.name);
@@ -248,7 +297,6 @@ static bool internalInitRenderer(AAssetManager *assetManager) {
     }
     createLineModel(&rs.leftControllerRay);
     createLineModel(&rs.rightControllerRay);
-    GL_SAFEPOINT;
 
     const float mat_array[3*16*sizeof(GLfloat)];
     glGenBuffers(1, &rs.matrixBuffer);
@@ -276,17 +324,10 @@ static bool internalInitRenderer(AAssetManager *assetManager) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0, 1, 0, 1);
     glLineWidth(4);
-    GL_RETURN(true, false, "internalInitRenderer failed: %x", error);
 }
 
 bool initRenderer(AAssetManager *assetManager) {
-    if(!initOpenGLES()) return false;
-    if(!makeContextCurrent()) goto destroy_gles;
-    if(!internalInitRenderer(assetManager)) goto destroy_gles;
-    return true;
-    destroy_gles:
-    destroyOpenGLES();
-    return false;
+    return true; // note: all renderer init happens after xr instance creation so...
 }
 
 static void resizeDepthBuffers(const XrExtent2Di newExtent) {
@@ -359,7 +400,7 @@ GLuint getRenderTargetName() {
 void renderFrame(frame_begin_end_state_t *state) {
     XrOffset2Di offset = state->frame.outputRect.offset;
     XrExtent2Di extent = state->frame.outputRect.extent;
-    GLuint targetColorTexture = xrinfo.renderTarget.swapchainTextures[state->frame.imageIndex];
+    VkImage targetColorTexture = xrinfo.renderTarget.swapchainImages[state->frame.imageIndex];
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rs.framebuffer);
 

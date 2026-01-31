@@ -5,7 +5,6 @@
 #ifndef QCXR_LIGHTMAP_MODEL_GLES_PROGRAM_H
 #define QCXR_LIGHTMAP_MODEL_GLES_PROGRAM_H
 
-#include <GLES2/gl2.h>
 #include <stdbool.h>
 
 typedef struct {

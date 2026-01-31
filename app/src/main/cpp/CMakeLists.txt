@@ -5,14 +5,29 @@
 # Sets the minimum CMake version required for this project.
 cmake_minimum_required(VERSION 3.22.1)
 
-
 project("qcxr")
 
 find_package(OpenXR REQUIRED CONFIG)
 
-add_library(ktx_read SHARED IMPORTED)
-include_directories(${CMAKE_SOURCE_DIR}/libktx/include)
-set_target_properties(ktx_read PROPERTIES IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/libktx/${CMAKE_ANDROID_ARCH_ABI}/libktx_read.so)
+include(FetchContent)
+
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG v3.3.0
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
+set(KTX_FEATURE_VULKAN ON CACHE BOOL "" FORCE)
+set(KTX_FEATURE_STATIC ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    ktx
+    GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git
+    GIT_TAG v4.4.2
+)
+FetchContent_MakeAvailable(ktx)
+
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ multiSource files with relative paths to this CMakeLists.txt.
@@ -20,8 +35,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         xr_init.c
         xr_render.c
         xr_input.c
-        gles_init.c
-        gles_shader.c
+        vk_init.c
         lightmap_model_gles_program.c
         rendertarget_blit_program.c
         singlecolor_program.c
@@ -36,7 +50,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
         log
-        GLESv3
-        EGL
         ktx_read
-        OpenXR::openxr_loader)
+        OpenXR::openxr_loader
+        vulkan-wrapper
+        VulkanMemoryAllocator)

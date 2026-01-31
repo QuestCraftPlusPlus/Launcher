@@ -4,7 +4,6 @@
 
 #ifndef QCXR_RENDERER_H
 #define QCXR_RENDERER_H
-#include <GLES3/gl3.h>
 #include <stdbool.h>
 #include <android/asset_manager.h>
 #include "xr_render.h"
