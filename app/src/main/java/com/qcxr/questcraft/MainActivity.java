@@ -21,18 +21,19 @@ public class MainActivity extends Activity {
     private static Handler uiThreadHandler;
     private static WeakReference<MainActivity> weakMe;
     private NativeSurface nativeSurface;
+    public static WebView webView;
 
     static {
         System.loadLibrary("qcxr");
     }
-    
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setDensity();
         uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
-        start(getAssets());
+        start(new XRActivityInput(), getAssets());
     }
 
     @Override
@@ -51,7 +52,7 @@ public class MainActivity extends Activity {
         getResources().updateConfiguration(null, null);
     }
 
-    private native void start(AssetManager assetManager);
+    private native void start(XRActivityInput xrActivityInput, AssetManager assetManager);
     private native void stop();
 
     public static void updateSurfaceTexture() {
@@ -66,7 +67,7 @@ public class MainActivity extends Activity {
         nativeSurface = new NativeSurface(this);
         nativeSurface.setSurfaceTexture(surfaceTexture);
 
-        WebView webView = new WebView(this);
+        webView = new WebView(this);
         nativeSurface.setChildView(webView);
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -76,13 +77,13 @@ public class MainActivity extends Activity {
         });
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
-        webView.loadUrl("https://webglsamples.org/aquarium/aquarium.html");
+        webView.loadUrl("https://youtu.be/PomiV1iyTp8?t=54");
 
         setContentView(nativeSurface, new ViewGroup.LayoutParams(w, h));
     }
 
     public static boolean createSurfaceTexture(int texId) {
-        int w = 1280, h = 720;
+        int w = 2560, h = 1440;
         try {
             SurfaceTexture surfaceTexture = new SurfaceTexture(texId);
             surfaceTexture.setDefaultBufferSize(w, h);
