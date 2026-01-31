@@ -12,7 +12,6 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 
-#include "multiview_detect.h"
 #include "asset_buffer_read.h"
 #include "xr_input.h"
 #include <android/asset_manager_jni.h>
