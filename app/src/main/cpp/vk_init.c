@@ -11,6 +11,21 @@
 
 vk_info_t vkinfo = {0};
 
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(vkinfo.physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    LOGE("Failed to find suitable memory type!");
+    return 0;
+}
+
 void destroyVulkan() {
     if (!vkinfo.initialized) return;
     LOGI("destroying vulkan");
@@ -58,7 +73,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         __android_log_print(ANDROID_LOG_ERROR, "QuestCraft Validation", "Vulkan Validation Error: %s", pCallbackData->pMessage);
-        raise(SIGTRAP);
+//        raise(SIGTRAP);
     } else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         __android_log_print(ANDROID_LOG_WARN, "QuestCraft Validation", "Vulkan Validation Warning: %s", pCallbackData->pMessage);
     } else {
@@ -69,7 +84,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 }
 
 bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
-
     PFN_xrCreateVulkanInstanceKHR xrCreateVulkanInstanceKHR;
     PFN_xrCreateVulkanDeviceKHR xrCreateVulkanDeviceKHR;
     PFN_xrGetVulkanGraphicsDevice2KHR xrGetVulkanGraphicsDevice2KHR;
@@ -89,6 +103,17 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
             .pfnUserCallback = debugCallback,
     };
 
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
+    VkExtensionProperties* availableExtensions = (VkExtensionProperties*)malloc(sizeof(VkExtensionProperties) * extensionCount);
+    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, availableExtensions);
+
+    LOGI("Available Vulkan Instance Extensions (%d):\n", extensionCount);
+    for (uint32_t i = 0; i < extensionCount; i++) {
+        LOGI("\t- %s (v%d)\n", availableExtensions[i].extensionName, availableExtensions[i].specVersion);
+    }
+    free(availableExtensions);
+
     const char* layers[] = { "VK_LAYER_KHRONOS_validation" };
     const char* extensions[] = { VK_EXT_DEBUG_UTILS_EXTENSION_NAME, VK_EXT_DEBUG_REPORT_EXTENSION_NAME };
 
@@ -107,7 +132,7 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     };
     XrVulkanInstanceCreateInfoKHR xrVkInstanceCreateInfo = { XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR };
     xrVkInstanceCreateInfo.systemId = systemId;
-    xrVkInstanceCreateInfo.pfnGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    xrVkInstanceCreateInfo.pfnGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) &vkGetInstanceProcAddr;
     xrVkInstanceCreateInfo.vulkanCreateInfo = &vkInstanceCreateInfo;
     xrVkInstanceCreateInfo.vulkanAllocator = NULL;
 
@@ -146,20 +171,22 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
     queueCreateInfo.pQueuePriorities = &priorities;
+
+    VkPhysicalDeviceVulkan11Features features11 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .samplerYcbcrConversion = VK_TRUE,
+            .multiview = VK_TRUE,
+    };
+
     VkDeviceCreateInfo vkDeviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     vkDeviceInfo.pQueueCreateInfos = &queueCreateInfo;
     vkDeviceInfo.queueCreateInfoCount = 1;
-
-    VkPhysicalDeviceMultiviewFeatures multiviewFeatures = {
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
-            .multiview = VK_TRUE
-    };
-    vkDeviceInfo.pNext = &multiviewFeatures;
+    vkDeviceInfo.pNext = &features11;
 
     XrVulkanDeviceCreateInfoKHR xrVkDeviceInfo = {XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
     xrVkDeviceInfo.systemId = systemId;
     xrVkDeviceInfo.vulkanAllocator = NULL;
-    xrVkDeviceInfo.pfnGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    xrVkDeviceInfo.pfnGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) &vkGetInstanceProcAddr;
     xrVkDeviceInfo.vulkanPhysicalDevice = vkinfo.physicalDevice;
     xrVkDeviceInfo.vulkanCreateInfo = &vkDeviceInfo;
 

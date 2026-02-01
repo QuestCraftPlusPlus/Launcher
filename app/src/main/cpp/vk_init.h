@@ -2,11 +2,12 @@
 // Created by firef on 1/30/2026.
 //
 
-#ifndef QUESTCRAFT_VK_INIT_H
-#define QUESTCRAFT_VK_INIT_H
-
 #include "xr_include.h"
+#include "log.h"
 #include <stdbool.h>
+
+#ifndef QCXR_VK_INIT_H
+#define QCXR_VK_INIT_H
 
 typedef struct {
     VkInstance instance;
@@ -28,7 +29,8 @@ typedef struct {
 
 extern vk_info_t vkinfo;
 
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 bool initVulkan(XrInstance xrInstance, XrSystemId systemId);
 void destroyVulkan();
 
-#endif //QUESTCRAFT_VK_INIT_H
+#endif //QCXR_VK_INIT_H

@@ -17,6 +17,13 @@ find_package(OpenXR REQUIRED CONFIG)
 include(FetchContent)
 
 FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG 1.4.304
+)
+FetchContent_MakeAvailable(volk)
+
+FetchContent_Declare(
     VulkanMemoryAllocator
     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
     GIT_TAG v3.3.0
@@ -51,6 +58,7 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES C_VISIBILITY_PRESET hidde
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
+        mediandk
         log
         ktx_read
         OpenXR::openxr_loader

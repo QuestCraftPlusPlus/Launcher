@@ -10,6 +10,12 @@
 #include "xr_linear_algebra.h"
 #include "xr_input.h"
 #include "renderer_types.h"
+#include "main.h"
+
+#include <media/NdkImageReader.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+#include <android/hardware_buffer.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +28,27 @@ typedef struct {
     XrMatrix4x4f projectionViews[2]; // Max 2 views usually (apparently the fucking varjo has 4???)
     XrMatrix4x4f modelMatrix;
 } UboViewData;
+
+typedef struct {
+    AHardwareBuffer* hb;
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+    uint32_t last_frame_used;
+} surface_buffer_t;
+
+typedef struct {
+    ANativeWindow* window;
+    AImageReader* reader;
+
+    surface_buffer_t* buffers;
+    VkSampler sampler;
+    VkSamplerYcbcrConversion conversion;
+
+    int width;
+    int height;
+    bool frameReady;
+} native_surface_t;
 
 struct {
     VkPipelineLayout pipelineLayout;
@@ -46,6 +73,8 @@ struct {
 
     vk_texture_t atlas;
     vk_texture_t light;
+
+    native_surface_t surface;
 
     VkDescriptorPool descriptorPool;
     VkDescriptorSetLayout descriptorSetLayout;
@@ -299,12 +328,19 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     vkCreateDescriptorSetLayout(vkinfo.device, &layoutInfo0, NULL, &vk_rs.set0Layout);
 
     VkDescriptorSetLayoutBinding texBindings[] = {
-            {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL}, // texAtlas
-            {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL}  // texLighting
+            {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {
+                    .binding = 2,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .pImmutableSamplers = &vk_rs.surface.sampler
+            }
     };
     VkDescriptorSetLayoutCreateInfo layoutInfo1 = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = 2,
+            .bindingCount = 3,
             .pBindings = texBindings
     };
     vkCreateDescriptorSetLayout(vkinfo.device, &layoutInfo1, NULL, &vk_rs.set1Layout);
@@ -312,7 +348,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     VkDescriptorSetLayout layouts[] = { vk_rs.set0Layout, vk_rs.set1Layout };
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 2, // Now we have 2 sets
+            .setLayoutCount = 2,
             .pSetLayouts = layouts
     };
     vkCreatePipelineLayout(vkinfo.device, &pipelineLayoutInfo, NULL, &vk_rs.pipelineLayout);
@@ -498,41 +534,231 @@ static void createRenderPass(VkFormat colorFormat) {
 }
 
 static void createDescriptorPools() {
+    uint32_t imgCount = xrinfo.renderTarget.swapchainImageCount;
+
+    uint32_t totalSets = imgCount * 2;
+
     VkDescriptorPoolSize poolSizes[] = {
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2}
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, imgCount},         // 1 per set0
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, imgCount * 3} // (Binding 0, 1, AND 2) per set1
     };
 
     VkDescriptorPoolCreateInfo poolInfo = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 2,
+            .maxSets = totalSets,
             .poolSizeCount = 2,
             .pPoolSizes = poolSizes
     };
     vkCreateDescriptorPool(vkinfo.device, &poolInfo, NULL, &vk_rs.descriptorPool);
 
-    VkDescriptorSetLayout layouts[] = { vk_rs.set0Layout, vk_rs.set1Layout };
+    VkDescriptorSetLayout* layouts = malloc(totalSets * sizeof(VkDescriptorSetLayout));
+    for (uint32_t i = 0; i < imgCount; i++) {
+        layouts[i * 2 + 0] = vk_rs.set0Layout;
+        layouts[i * 2 + 1] = vk_rs.set1Layout;
+    }
+
+    vk_rs.descriptorSets = malloc(totalSets * sizeof(VkDescriptorSet));
+
     VkDescriptorSetAllocateInfo allocInfo = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = vk_rs.descriptorPool,
-            .descriptorSetCount = 2,
+            .descriptorSetCount = totalSets,
             .pSetLayouts = layouts
     };
-    vk_rs.descriptorSets = malloc(2 * sizeof(VkDescriptorSet));
     vkAllocateDescriptorSets(vkinfo.device, &allocInfo, vk_rs.descriptorSets);
+    free(layouts);
 
-    VkDescriptorBufferInfo bufferInfo = { vk_rs.uniformBuffer, 0, sizeof(UboViewData) };
-    VkDescriptorImageInfo imageInfos[2] = {
-            { .sampler = vk_rs.atlas.sampler, .imageView = vk_rs.atlas.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-            { .sampler = vk_rs.light.sampler, .imageView = vk_rs.light.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
+    for (uint32_t i = 0; i < imgCount; i++) {
+        VkDescriptorSet set0 = vk_rs.descriptorSets[i * 2 + 0];
+        VkDescriptorSet set1 = vk_rs.descriptorSets[i * 2 + 1];
+
+        VkDescriptorBufferInfo bufferInfo = { vk_rs.uniformBuffer, 0, sizeof(UboViewData) };
+
+        VkDescriptorImageInfo imageInfos[3] = {
+                { .sampler = vk_rs.atlas.sampler, .imageView = vk_rs.atlas.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+                { .sampler = vk_rs.light.sampler, .imageView = vk_rs.light.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+                { .sampler = vk_rs.surface.sampler, .imageView = VK_NULL_HANDLE, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
+        };
+
+        VkWriteDescriptorSet writes[3];
+        writes[0] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set0, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .pBufferInfo = &bufferInfo };
+        writes[1] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[0] };
+        writes[2] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[1] };
+
+        vkUpdateDescriptorSets(vkinfo.device, 3, writes, 0, NULL);
+    }
+}
+
+PFN_vkGetAndroidHardwareBufferPropertiesANDROID pfnGetAndroidHardwareBufferPropertiesANDROID;
+
+static void createSurface() {
+    if (!pfnGetAndroidHardwareBufferPropertiesANDROID) {
+        pfnGetAndroidHardwareBufferPropertiesANDROID = (PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
+                vkGetDeviceProcAddr(vkinfo.device, "vkGetAndroidHardwareBufferPropertiesANDROID");
+    }
+
+    vk_rs.surface.buffers = malloc(xrinfo.renderTarget.swapchainImageCount * sizeof(surface_buffer_t));
+    media_status_t status = AImageReader_newWithUsage(
+            2560, 1440,
+            AIMAGE_FORMAT_RGBA_8888,
+            AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
+            (int)xrinfo.renderTarget.swapchainImageCount,
+            &vk_rs.surface.reader
+    );
+
+    AImageReader_getWindow(vk_rs.surface.reader, &vk_rs.surface.window);
+
+    JNIEnv* env = getJniEnv();
+    jobject jSurface = ANativeWindow_toSurface(env, vk_rs.surface.window);
+    setVulkanSurface(env, jSurface);
+
+    PFN_vkCreateSamplerYcbcrConversion pfnCreateSamplerYcbcrConversion =
+            (PFN_vkCreateSamplerYcbcrConversion)vkGetDeviceProcAddr(vkinfo.device, "vkCreateSamplerYcbcrConversion");
+
+    VkSamplerYcbcrConversionCreateInfo convInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_RGB_IDENTITY,
+            .ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
+            .components = {VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY},
+            .chromaFilter = VK_FILTER_LINEAR,
+            .forceExplicitReconstruction = VK_FALSE
+    };
+    pfnCreateSamplerYcbcrConversion(vkinfo.device, &convInfo, NULL, &vk_rs.surface.conversion);
+
+    VkSamplerYcbcrConversionInfo conversionInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+            .conversion = vk_rs.surface.conversion
     };
 
-    VkWriteDescriptorSet descriptorWrites[] = {
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = vk_rs.descriptorSets[0], .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .pBufferInfo = &bufferInfo },
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = vk_rs.descriptorSets[1], .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[0] },
-            { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = vk_rs.descriptorSets[1], .dstBinding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[1] }
+    VkSamplerCreateInfo samplerInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .pNext = &conversionInfo,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .anisotropyEnable = VK_FALSE,
+            .unnormalizedCoordinates = VK_FALSE
     };
-    vkUpdateDescriptorSets(vkinfo.device, 3, descriptorWrites, 0, NULL);
+    vkCreateSampler(vkinfo.device, &samplerInfo, NULL, &vk_rs.surface.sampler);
+}
+
+static void importSurfaceData(frame_begin_end_state_t* state) {
+    AImage* image = NULL;
+    if (AImageReader_acquireLatestImage(vk_rs.surface.reader, &image) != AMEDIA_OK) return;
+
+    AHardwareBuffer* buffer = NULL;
+    AImage_getHardwareBuffer(image, &buffer);
+
+    uint32_t slot = state->frame.imageIndex;
+    if (vk_rs.surface.buffers[slot].hb != NULL) {
+        vkDestroyImageView(vkinfo.device, vk_rs.surface.buffers[slot].view, NULL);
+        vk_rs.surface.buffers[slot].view = NULL;
+        vkDestroyImage(vkinfo.device, vk_rs.surface.buffers[slot].image, NULL);
+        vk_rs.surface.buffers[slot].image = NULL;
+        vkFreeMemory(vkinfo.device, vk_rs.surface.buffers[slot].memory, NULL);
+        vk_rs.surface.buffers[slot].memory = NULL;
+        AHardwareBuffer_release(vk_rs.surface.buffers[slot].hb);
+        vk_rs.surface.buffers[slot].hb = NULL;
+    }
+
+    if (vk_rs.surface.buffers[slot].hb != buffer) {
+        vk_rs.surface.buffers[slot].hb = buffer;
+        AHardwareBuffer_acquire(buffer);
+
+        AHardwareBuffer_Desc desc;
+        AHardwareBuffer_describe(buffer, &desc);
+
+        VkAndroidHardwareBufferFormatPropertiesANDROID formatProps = {
+                .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID
+        };
+        VkAndroidHardwareBufferPropertiesANDROID props = {
+                .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
+                .pNext = &formatProps
+        };
+        pfnGetAndroidHardwareBufferPropertiesANDROID(vkinfo.device, buffer, &props);
+
+        VkExternalMemoryImageCreateInfo externalInfo = {
+                .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
+        };
+
+        VkImageCreateInfo icharInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .pNext = &externalInfo,
+                .imageType = VK_IMAGE_TYPE_2D,
+                .format = formatProps.format,
+                .extent = {2560, 1440, 1},
+                .mipLevels = 1,
+                .arrayLayers = 1,
+                .samples = VK_SAMPLE_COUNT_1_BIT,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .usage = VK_IMAGE_USAGE_SAMPLED_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+        };
+        vkCreateImage(vkinfo.device, &icharInfo, NULL, &vk_rs.surface.buffers[slot].image);
+
+        VkImportAndroidHardwareBufferInfoANDROID importInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
+                .buffer = buffer
+        };
+
+        VkMemoryDedicatedAllocateInfo dedicatedInfo = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+                .pNext = &importInfo,
+                .image = vk_rs.surface.buffers[slot].image,
+                .buffer = VK_NULL_HANDLE
+        };
+
+        VkMemoryAllocateInfo allocInfo = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .pNext = &dedicatedInfo,
+                .allocationSize = props.allocationSize,
+                .memoryTypeIndex = findMemoryType(props.memoryTypeBits, 0)
+        };
+
+        vkAllocateMemory(vkinfo.device, &allocInfo, NULL, &vk_rs.surface.buffers[slot].memory);
+        vkBindImageMemory(vkinfo.device, vk_rs.surface.buffers[slot].image,
+                          vk_rs.surface.buffers[slot].memory, 0);
+
+        VkSamplerYcbcrConversionInfo conversionInfo = {
+                .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+                .conversion = vk_rs.surface.conversion
+        };
+
+        VkImageViewCreateInfo viewInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext = &conversionInfo,
+                .image = vk_rs.surface.buffers[slot].image,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                .format = formatProps.format,
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+        };
+
+        vkCreateImageView(vkinfo.device, &viewInfo, NULL, &vk_rs.surface.buffers[slot].view);
+
+        VkDescriptorImageInfo webViewInfo = {
+                .sampler = VK_NULL_HANDLE,
+                .imageView = vk_rs.surface.buffers[slot].view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        };
+
+        VkWriteDescriptorSet write = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
+                .dstBinding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .pImageInfo = &webViewInfo
+        };
+        vkUpdateDescriptorSets(vkinfo.device, 1, &write, 0, NULL);
+    }
+
+    vk_rs.surface.buffers[slot].last_frame_used = state->frame.imageIndex;
+    AImage_delete(image);
 }
 
 #pragma clang diagnostic push
@@ -555,6 +781,7 @@ bool initRenderer(AAssetManager *assetManager) {
         return false;
     }
 
+    createSurface();
     loadTextures(assetManager);
 
     createBuffer(sizeof(UboViewData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, &vk_rs.uniformBuffer, &vk_rs.uniformAlloc);
@@ -625,6 +852,8 @@ void renderFrame(frame_begin_end_state_t *state) {
     vkWaitForFences(vkinfo.device, 1, &vk_rs.renderFences[state->frame.imageIndex], VK_TRUE, UINT64_MAX);
     vkResetFences(vkinfo.device, 1, &vk_rs.renderFences[state->frame.imageIndex]);
 
+    importSurfaceData(state);
+
     updateUniforms(state);
 
     XrMatrix4x4f modelMat = ((UboViewData*)vk_rs.uniformMappedData)->modelMatrix;
@@ -641,9 +870,9 @@ void renderFrame(frame_begin_end_state_t *state) {
     uint32_t imgIndex = state->frame.imageIndex;
     VkFramebuffer currentFb = vk_rs.framebuffers[imgIndex];
 
-    vkResetCommandBuffer(vk_rs.cmdBuffers[state->frame.imageIndex], 0);
+    vkResetCommandBuffer(vk_rs.cmdBuffers[imgIndex], 0);
     VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    vkBeginCommandBuffer(vk_rs.cmdBuffers[state->frame.imageIndex], &beginInfo);
+    vkBeginCommandBuffer(vk_rs.cmdBuffers[imgIndex], &beginInfo);
 
     VkClearValue clearValues[2] = {
             {.color = {{0.1f, 0.1f, 0.1f, 1.0f}}},
@@ -659,37 +888,45 @@ void renderFrame(frame_begin_end_state_t *state) {
             .pClearValues = clearValues
     };
 
-    vkCmdBeginRenderPass(vk_rs.cmdBuffers[state->frame.imageIndex], &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(vk_rs.cmdBuffers[imgIndex], &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport = {0, 0, (float)rect.width, (float)rect.height, 0.0f, 1.0f};
-    vkCmdSetViewport(vk_rs.cmdBuffers[state->frame.imageIndex], 0, 1, &viewport);
+    vkCmdSetViewport(vk_rs.cmdBuffers[imgIndex], 0, 1, &viewport);
     VkRect2D scissor = {{0,0}, {rect.width, rect.height}};
-    vkCmdSetScissor(vk_rs.cmdBuffers[state->frame.imageIndex], 0, 1, &scissor);
+    vkCmdSetScissor(vk_rs.cmdBuffers[imgIndex], 0, 1, &scissor);
 
     VkDeviceSize offsets[] = {0};
 
     // World
-    vkCmdBindPipeline(vk_rs.cmdBuffers[state->frame.imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
-    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[state->frame.imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, vk_rs.descriptorSets, 0, NULL);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[state->frame.imageIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[state->frame.imageIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
+    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
+    VkDescriptorSet sets[] = {
+            vk_rs.descriptorSets[state->frame.imageIndex * 2 + 0],
+            vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
+    };
+    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
+    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
+    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
+
+    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);
+    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.targetRectModel.buffer, offsets);
+    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.targetRectModel.vertexCount, 1, 0, 0);
 
     // Rays
-    vkCmdBindPipeline(vk_rs.cmdBuffers[state->frame.imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.linePipeline);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[state->frame.imageIndex], 0, 1, &vk_rs.leftRay.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[state->frame.imageIndex], vk_rs.leftRay.vertexCount, 1, 0, 0);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[state->frame.imageIndex], 0, 1, &vk_rs.rightRay.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[state->frame.imageIndex], vk_rs.rightRay.vertexCount, 1, 0, 0);
+    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.linePipeline);
+    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.leftRay.buffer, offsets);
+    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.leftRay.vertexCount, 1, 0, 0);
+    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.rightRay.buffer, offsets);
+    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.rightRay.vertexCount, 1, 0, 0);
 
-    vkCmdEndRenderPass(vk_rs.cmdBuffers[state->frame.imageIndex]);
-    vkEndCommandBuffer(vk_rs.cmdBuffers[state->frame.imageIndex]);
+    vkCmdEndRenderPass(vk_rs.cmdBuffers[imgIndex]);
+    vkEndCommandBuffer(vk_rs.cmdBuffers[imgIndex]);
 
     VkSubmitInfo submitInfo = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .commandBufferCount = 1,
-            .pCommandBuffers = &vk_rs.cmdBuffers[state->frame.imageIndex]
+            .pCommandBuffers = &vk_rs.cmdBuffers[imgIndex]
     };
-    vkQueueSubmit(vkinfo.graphicsQueue, 1, &submitInfo, vk_rs.renderFences[state->frame.imageIndex]);
+    vkQueueSubmit(vkinfo.graphicsQueue, 1, &submitInfo, vk_rs.renderFences[imgIndex]);
 }
 
 static void destroyVkModel(vk_model_t* model) {
@@ -705,38 +942,76 @@ static void destroyVkTexture(vk_texture_t* tex) {
 }
 
 void cleanupRenderer() {
-    vkDeviceWaitIdle(vkinfo.device);
+    if (vkinfo.device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(vkinfo.device);
+    }
 
-    destroyFramebuffers();
+    if (vk_rs.surface.buffers) {
+        for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
+            if (vk_rs.surface.buffers[i].hb != NULL) {
+                vkDestroyImageView(vkinfo.device, vk_rs.surface.buffers[i].view, NULL);
+                vkDestroyImage(vkinfo.device, vk_rs.surface.buffers[i].image, NULL);
+                vkFreeMemory(vkinfo.device, vk_rs.surface.buffers[i].memory, NULL);
+                AHardwareBuffer_release(vk_rs.surface.buffers[i].hb);
+            }
+        }
+        free(vk_rs.surface.buffers);
+        vk_rs.surface.buffers = NULL;
+    }
+
+    if (vk_rs.surface.sampler != VK_NULL_HANDLE) {
+        vkDestroySampler(vkinfo.device, vk_rs.surface.sampler, NULL);
+    }
+    if (vk_rs.surface.conversion != VK_NULL_HANDLE) {
+        PFN_vkDestroySamplerYcbcrConversion pfnDestroySamplerYcbcrConversion =
+                (PFN_vkDestroySamplerYcbcrConversion)vkGetDeviceProcAddr(vkinfo.device, "vkDestroySamplerYcbcrConversion");
+
+        pfnDestroySamplerYcbcrConversion(vkinfo.device, vk_rs.surface.conversion, NULL);
+    }
+    if (vk_rs.surface.reader != NULL) {
+        AImageReader_delete(vk_rs.surface.reader);
+        vk_rs.surface.window = NULL;
+    }
+
+    if (vk_rs.renderFences) {
+        for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
+            vkDestroyFence(vkinfo.device, vk_rs.renderFences[i], NULL);
+        }
+        free(vk_rs.renderFences);
+    }
+    if (vk_rs.cmdBuffers) {
+        vkFreeCommandBuffers(vkinfo.device, vkinfo.commandPool, xrinfo.renderTarget.swapchainImageCount, vk_rs.cmdBuffers);
+        free(vk_rs.cmdBuffers);
+    }
+
+    vkDestroyPipeline(vkinfo.device, vk_rs.worldPipeline, NULL);
+    vkDestroyPipeline(vkinfo.device, vk_rs.linePipeline, NULL);
+    vkDestroyPipeline(vkinfo.device, vk_rs.blitPipeline, NULL);
+    vkDestroyPipelineLayout(vkinfo.device, vk_rs.pipelineLayout, NULL);
+
+    if (vk_rs.descriptorPool) {
+        vkDestroyDescriptorPool(vkinfo.device, vk_rs.descriptorPool, NULL);
+        free(vk_rs.descriptorSets);
+    }
+    vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set0Layout, NULL);
+    vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set1Layout, NULL);
+    vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.descriptorSetLayout, NULL);
 
     destroyVkModel(&vk_rs.worldModel);
     destroyVkModel(&vk_rs.targetRectModel);
     destroyVkModel(&vk_rs.leftRay);
     destroyVkModel(&vk_rs.rightRay);
 
-    vmaUnmapMemory(vkinfo.allocator, vk_rs.uniformAlloc);
-    vmaDestroyBuffer(vkinfo.allocator, vk_rs.uniformBuffer, vk_rs.uniformAlloc);
-
     destroyVkTexture(&vk_rs.atlas);
     destroyVkTexture(&vk_rs.light);
 
-    vkDestroyPipeline(vkinfo.device, vk_rs.worldPipeline, NULL);
-    vkDestroyPipeline(vkinfo.device, vk_rs.linePipeline, NULL);
-    vkDestroyPipeline(vkinfo.device, vk_rs.blitPipeline, NULL);
-
-    vkDestroyPipelineLayout(vkinfo.device, vk_rs.pipelineLayout, NULL);
-    vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.descriptorSetLayout, NULL);
-
-    if (vk_rs.descriptorPool) {
-        vkDestroyDescriptorPool(vkinfo.device, vk_rs.descriptorPool, NULL);
+    if (vk_rs.uniformMappedData) {
+        vmaUnmapMemory(vkinfo.allocator, vk_rs.uniformAlloc);
     }
+    vmaDestroyBuffer(vkinfo.allocator, vk_rs.uniformBuffer, vk_rs.uniformAlloc);
 
+    destroyFramebuffers();
     vkDestroyRenderPass(vkinfo.device, vk_rs.renderPass, NULL);
-    for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
-        vkDestroyFence(vkinfo.device, vk_rs.renderFences[i], NULL);
-    }
-
-    vkFreeCommandBuffers(vkinfo.device, vkinfo.commandPool, xrinfo.renderTarget.swapchainImageCount, vk_rs.cmdBuffers);
 
     LOGI("Renderer cleanup complete.");
 }

@@ -2,7 +2,7 @@
 layout(location = 0) in vec2 tex_coord;
 layout(location = 0) out vec4 fragColor;
 
-layout(set = 1, binding = 0) uniform sampler2D render_source;
+layout(set = 1, binding = 2) uniform sampler2D render_source;
 
 vec4 to_linear(vec4 srgb) {
     bvec3 cutoff = lessThan(srgb.rgb, vec3(0.04045));

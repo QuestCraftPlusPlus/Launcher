@@ -5,6 +5,7 @@
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_android.h>
 #include <vk_mem_alloc.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -14,7 +15,7 @@
 
 #define XR_FAIL(x, s) do { \
     XrResult result = x; \
-    if(result != XR_SUCCESS) {   \
+    if(result != XR_SUCCESS) { \
         LOGE(#x" failed: %i", result); \
         s; \
     }\
