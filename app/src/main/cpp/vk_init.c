@@ -3,6 +3,7 @@
 //
 
 #include <malloc.h>
+#include <signal.h>
 #include "vk_init.h"
 
 #define LOG_TAG __FILE_NAME__
@@ -12,8 +13,14 @@ vk_info_t vkinfo = {0};
 
 void destroyVulkan() {
     if (!vkinfo.initialized) return;
+    LOGI("destroying vulkan");
     if (vkinfo.device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(vkinfo.device);
+
+        if (vkinfo.pipelineCache != NULL) {
+            vkDestroyPipelineCache(vkinfo.device, vkinfo.pipelineCache, NULL);
+            vkinfo.pipelineCache = NULL;
+        }
 
         if (vkinfo.allocator != NULL) {
             vmaDestroyAllocator(vkinfo.allocator);
@@ -29,11 +36,36 @@ void destroyVulkan() {
         vkinfo.device = VK_NULL_HANDLE;
     }
     if (vkinfo.instance != VK_NULL_HANDLE) {
+        if (vkinfo.debugMessenger != VK_NULL_HANDLE) {
+            PFN_vkDestroyDebugUtilsMessengerEXT func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkinfo.instance, "vkDestroyDebugUtilsMessengerEXT");
+            if (func != NULL) {
+                func(vkinfo.instance, vkinfo.debugMessenger, NULL);
+            }
+        }
+
         vkDestroyInstance(vkinfo.instance, NULL);
         vkinfo.instance = VK_NULL_HANDLE;
     }
     vkinfo.initialized = false;
     LOGI("Vulkan resources were cleaned up.");
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData) {
+
+    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        __android_log_print(ANDROID_LOG_ERROR, "QuestCraft Validation", "Vulkan Validation Error: %s", pCallbackData->pMessage);
+        raise(SIGTRAP);
+    } else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        __android_log_print(ANDROID_LOG_WARN, "QuestCraft Validation", "Vulkan Validation Warning: %s", pCallbackData->pMessage);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "QuestCraft Validation", "Vulkan Validation Warning: %s", pCallbackData->pMessage);
+    }
+
+    return VK_FALSE;
 }
 
 bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
@@ -46,9 +78,28 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     XR_FAILRETURN(xrGetInstanceProcAddr(xrInstance, "xrCreateVulkanDeviceKHR", (PFN_xrVoidFunction*)&xrCreateVulkanDeviceKHR), false);
     XR_FAILRETURN(xrGetInstanceProcAddr(xrInstance, "xrGetVulkanGraphicsDevice2KHR", (PFN_xrVoidFunction*)&xrGetVulkanGraphicsDevice2KHR), false);
 
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+            .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+            .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+            .pfnUserCallback = debugCallback,
+    };
+
+    const char* layers[] = { "VK_LAYER_KHRONOS_validation" };
+    const char* extensions[] = { VK_EXT_DEBUG_UTILS_EXTENSION_NAME, VK_EXT_DEBUG_REPORT_EXTENSION_NAME };
+
     VkInstanceCreateInfo vkInstanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    vkInstanceCreateInfo.pNext = &debugCreateInfo;
+    vkInstanceCreateInfo.enabledLayerCount = 1;
+    vkInstanceCreateInfo.ppEnabledLayerNames = layers;
+    vkInstanceCreateInfo.enabledExtensionCount = 2;
+    vkInstanceCreateInfo.ppEnabledExtensionNames = extensions;
     vkInstanceCreateInfo.pApplicationInfo = &(VkApplicationInfo){
-            .apiVersion = VK_API_VERSION_1_1,
+            .apiVersion = VK_API_VERSION_1_1, // supposedly the quest supports up to 1.3, but I've had mixed results. 1.1 has multiview support as a requirement though so we're sticking with that for now.
             .applicationVersion = VK_MAKE_API_VERSION(0,0,0,0),
             .engineVersion = VK_MAKE_API_VERSION(0,0,0,0),
             .pEngineName = "VkXrEngine",
@@ -63,6 +114,11 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     VkResult vkResult;
     XR_FAILRETURN(xrCreateVulkanInstanceKHR(xrInstance, &xrVkInstanceCreateInfo, &vkinfo.instance, &vkResult), false);
     VK_FAILRETURN(vkResult, false);
+
+    PFN_vkCreateDebugUtilsMessengerEXT createFunc = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkinfo.instance, "vkCreateDebugUtilsMessengerEXT");
+    if (createFunc != NULL) {
+        createFunc(vkinfo.instance, &debugCreateInfo, NULL, &vkinfo.debugMessenger);
+    }
 
     XrVulkanGraphicsDeviceGetInfoKHR deviceGetInfo = {XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR};
     deviceGetInfo.systemId = systemId;
@@ -92,6 +148,7 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     queueCreateInfo.pQueuePriorities = &priorities;
     VkDeviceCreateInfo vkDeviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     vkDeviceInfo.pQueueCreateInfos = &queueCreateInfo;
+    vkDeviceInfo.queueCreateInfoCount = 1;
 
     VkPhysicalDeviceMultiviewFeatures multiviewFeatures = {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
@@ -136,6 +193,11 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
     vkGetPhysicalDeviceMemoryProperties(vkinfo.physicalDevice, &vkinfo.cachedMemProps);
 
     LOGI("We got us a full ass vulkan instance");
+
+    VkPipelineCacheCreateInfo cacheCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO
+    };
+    VK_FAILRETURN(vkCreatePipelineCache(vkinfo.device, &cacheCreateInfo, NULL, &vkinfo.pipelineCache), false);
 
     vkinfo.initialized = true;
     return true;

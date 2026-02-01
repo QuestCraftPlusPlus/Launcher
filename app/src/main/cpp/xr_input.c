@@ -178,7 +178,8 @@ bool pollActions(XrTime predictedTime) {
         actionStateGetInfo.subactionPath = handPaths[i];
         XR_FAILRETURN(xrGetActionStateBoolean(xrinfo.session, &actionStateGetInfo, &clickScreenState[i]), false);
         if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync) {
-            clickScreenAtPosition(globalEnv, 1, 1);
+            vibrate[i] = 1.0f;
+            clickScreenAtPosition(getJniEnv(), 1, 1);
         }
     }
 

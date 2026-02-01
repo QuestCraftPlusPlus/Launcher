@@ -13,10 +13,10 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 #include "xr_input.h"
+#include "vk_init.h"
 
 static const XrCompositionLayerProjectionView defaultCompositionLayerProjectionView  = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
 static const XrView defaultView = {XR_TYPE_VIEW};
-//static
 
 void initializeBeginEndState(frame_begin_end_state_t* state) {
     XrCompositionLayerProjection compositionLayerProjection  = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
@@ -110,5 +110,10 @@ void endFrame(frame_begin_end_state_t* state) {
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(xrinfo.renderTarget.swapchain, &releaseInfo);
     state->frameEndInfo.displayTime = state->displayTime;
-    xrEndFrame(xrinfo.session, &state->frameEndInfo);
+    XrResult result = xrEndFrame(xrinfo.session, &state->frameEndInfo);
+    if (result != XR_SUCCESS) {
+        char buffer[XR_MAX_RESULT_STRING_SIZE];
+        xrResultToString(xrinfo.instance, result, buffer);
+        LOGE("XR error on end frame: %s", buffer);
+    }
 }

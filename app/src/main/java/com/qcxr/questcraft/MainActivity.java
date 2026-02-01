@@ -21,6 +21,7 @@ public class MainActivity extends Activity {
     private static Handler uiThreadHandler;
     private static WeakReference<MainActivity> weakMe;
     private NativeSurface nativeSurface;
+    @SuppressLint("StaticFieldLeak")
     public static WebView webView;
 
     static {
@@ -63,7 +64,6 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void createNativeView(SurfaceTexture surfaceTexture, int w, int h) {
-
         nativeSurface = new NativeSurface(this);
         nativeSurface.setSurfaceTexture(surfaceTexture);
 

@@ -10,6 +10,7 @@
 
 typedef struct {
     VkInstance instance;
+    VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice;
     VkDevice device;
 
@@ -17,6 +18,7 @@ typedef struct {
     VkQueue graphicsQueue;
 
     VkCommandPool commandPool;
+    VkPipelineCache pipelineCache;
 
     VkPhysicalDeviceMemoryProperties cachedMemProps;
     VmaAllocator allocator;

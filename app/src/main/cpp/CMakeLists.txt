@@ -5,7 +5,12 @@
 # Sets the minimum CMake version required for this project.
 cmake_minimum_required(VERSION 3.22.1)
 
-project("qcxr")
+project("qcxr" C CXX)
+
+# note: this is required for VulkanMemoryAllocator
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(OpenXR REQUIRED CONFIG)
 
@@ -31,16 +36,13 @@ FetchContent_MakeAvailable(ktx)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ multiSource files with relative paths to this CMakeLists.txt.
+        vma_hack.cpp
         main.c
         xr_init.c
         xr_render.c
         xr_input.c
         vk_init.c
-        lightmap_model_gles_program.c
-        rendertarget_blit_program.c
-        singlecolor_program.c
         ktx_texture.c
-        multiview_detect.c
         asset_buffer_read.c
         renderer.c)
 
@@ -52,5 +54,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         log
         ktx_read
         OpenXR::openxr_loader
-        vulkan-wrapper
+        vulkan
         VulkanMemoryAllocator)

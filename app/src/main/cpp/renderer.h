@@ -8,8 +8,8 @@
 #include <android/asset_manager.h>
 #include "xr_render.h"
 
-GLuint getRenderTargetName();
-bool initRenderer(AAssetManager *assetManager);
 void renderFrame(frame_begin_end_state_t *state);
+bool initRenderer(AAssetManager *assetManager);
+void cleanupRenderer();
 
 #endif //QCXR_RENDERER_H

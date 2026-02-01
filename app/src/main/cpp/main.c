@@ -29,7 +29,7 @@ static jmethodID MainActivity_updateSurfaceTexture;
 static jmethodID MainActivity_performSystemExit;
 static jmethodID XRActivityInput_clickScreenAtPosition;
 static bool shouldStopJni;
-JNIEnv *globalEnv;
+JavaVM *globalVm;
 
 static void performSystemExit(JNIEnv *env) {
     (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_performSystemExit);
@@ -106,11 +106,14 @@ static void* main_loop(void* data) {
     (void)data;
     JNIEnv *env;
     (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &env, NULL);
-    if(!xriInitialize(&jniData)) goto fatal_exit;
+    globalVm = jniData.applicationVm;
+    if (!xriInitialize(&jniData)) goto fatal_exit;
+    if (!initVulkan(xrinfo.instance, xrinfo.systemId)) goto free_xri;
     createActionSet();
     createDefaultActions();
     createSuggestedBindings();
-    if(!xriInitSession()) goto free_xri;
+    if(!xriInitSession()) goto free_vulkan;
+    if (!initRenderer(g_assetManager)) goto free_vulkan;
     createActionPoses();
     attachActionSet();
 
@@ -129,19 +132,21 @@ static void* main_loop(void* data) {
             continue;
         }
         if(!beginFrame(&state)) goto exit;
-        updateSurfaceTexture(globalEnv);
+//        updateSurfaceTexture(env);
         renderFrame(&state);
         endFrame(&state);
     }
 
     exit:
     freeBeginEndState(&state);
+    cleanupRenderer();
+    free_vulkan:
     destroyVulkan();
     free_xri:
     xriFree();
     fatal_exit:
 
-    performSystemExit(globalEnv);
+    performSystemExit(env);
 
     pthread_exit(NULL);
 }

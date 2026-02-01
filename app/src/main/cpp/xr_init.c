@@ -2,7 +2,6 @@
 // Created by maks on 03.12.2024.
 //
 
-#define VMA_IMPLEMENTATION
 #include "vk_init.h"
 #include "xr_include.h"
 #include "xr_init.h"
@@ -57,7 +56,7 @@ static bool createXrInstance(android_jni_data_t* jniData) {
     createInfo.enabledExtensionCount = sizeof(instanceExtensions) / sizeof(instanceExtensions[0]);
 
     strcpy(createInfo.applicationInfo.applicationName, "HelloXR");
-    createInfo.applicationInfo.apiVersion = XR_API_VERSION_1_0;
+    createInfo.applicationInfo.apiVersion = XR_API_VERSION_1_1;
 
     XR_FAILRETURN(xrCreateInstance(&createInfo, &xrinfo.instance), false);
 
@@ -73,21 +72,26 @@ static bool createXrInstance(android_jni_data_t* jniData) {
 }
 
 static bool getXrGraphicsRequirements(XrGraphicsRequirementsVulkan2KHR* graphicsRequirements) {
-    PFN_xrGetVulkanGraphicsRequirementsKHR xrGetVulkanGraphicsRequirements;
-    XR_FAILRETURN(xrGetInstanceProcAddr(xrinfo.instance,"xrGetVulkanGraphicsRequirementsKHR",(PFN_xrVoidFunction*)&xrGetVulkanGraphicsRequirements), false);
-    XR_FAILRETURN(xrGetVulkanGraphicsRequirements(xrinfo.instance, xrinfo.systemId, graphicsRequirements), false);
+    PFN_xrGetVulkanGraphicsRequirements2KHR pfnGetVulkanGraphicsRequirements2KHR = NULL;
+    xrGetInstanceProcAddr(xrinfo.instance, "xrGetVulkanGraphicsRequirements2KHR",
+                          (PFN_xrVoidFunction*)&pfnGetVulkanGraphicsRequirements2KHR);
+
+    if (pfnGetVulkanGraphicsRequirements2KHR) {
+        XR_FAILRETURN(pfnGetVulkanGraphicsRequirements2KHR(xrinfo.instance, xrinfo.systemId, graphicsRequirements), false);
+
+        LOGI("Runtime requires Vulkan between %lu and %lu",
+             graphicsRequirements->minApiVersionSupported,
+             graphicsRequirements->maxApiVersionSupported);
+    } else {
+        LOGE("Could not find xrGetVulkanGraphicsRequirements2KHR");
+        return false;
+    }
     return true;
 }
 
 static bool initializeVKSession() {
-    XrGraphicsRequirementsVulkan2KHR graphicsRequirements = {XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
-
-    if(!getXrGraphicsRequirements(&graphicsRequirements)) {
-        LOGE("%s", "Failed to detect OpenXR runtime version requirements");
-        return false;
-    }
-
-    initVulkan(xrinfo.instance, xrinfo.systemId);
+    XrGraphicsRequirementsVulkan2KHR reqs = {XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
+    getXrGraphicsRequirements(&reqs); // note: this needs to be called or session will FAIL
 
     XrGraphicsBindingVulkan2KHR graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
     graphicsBinding.instance = vkinfo.instance;
@@ -99,8 +103,6 @@ static bool initializeVKSession() {
     XrSessionCreateInfo sessionCreateInfo = {XR_TYPE_SESSION_CREATE_INFO};
     sessionCreateInfo.next = &graphicsBinding;
     sessionCreateInfo.systemId = xrinfo.systemId;
-
-    xrCreateSession(xrinfo.instance, &sessionCreateInfo, &xrinfo.session);
 
     XR_FAILRETURN(xrCreateSession(xrinfo.instance, &sessionCreateInfo, &xrinfo.session), false);
     return true;
@@ -165,6 +167,7 @@ static bool createViewSurface() {
     swapchainCreateInfo.sampleCount = 1;
 
     XR_FAILRETURN(xrCreateSwapchain(xrinfo.session, &swapchainCreateInfo, &swapchain), false);
+    xrinfo.renderTarget.swapchain = swapchain;
 
     uint32_t imageCount = 0;
     XrResult xrEnumerateSwapchainImages_result = xrEnumerateSwapchainImages(swapchain, 0, &imageCount, NULL);
@@ -175,6 +178,8 @@ static bool createViewSurface() {
         vkImages[j].type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR;
         vkImages[j].next = NULL;
     }
+
+    LOGI("Creating %i swapchain images.", imageCount);
 
     XR_FAILGOTO(xrEnumerateSwapchainImages(xrinfo.renderTarget.swapchain, imageCount, &imageCount,
                                            (XrSwapchainImageBaseHeader *) vkImages), free_images);
@@ -197,6 +202,7 @@ static bool createViewSurface() {
     free_images:
     free(vkImages);
     xrDestroySwapchain(xrinfo.renderTarget.swapchain);
+    return false;
 }
 
 bool xriStartSession() {
