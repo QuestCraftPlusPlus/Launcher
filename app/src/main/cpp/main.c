@@ -38,7 +38,7 @@ void setVulkanSurface(JNIEnv *env, jobject surface) {
     (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_setVulkanSurface, surface);
 }
 
-void clickScreenAtPosition(JNIEnv *env, int x, int y) {
+void clickScreenAtPosition(JNIEnv *env, float x, float y) {
     (*env)->CallStaticVoidMethod(env, xrActivityInputClass, XRActivityInput_clickScreenAtPosition, x, y);
 }
 
@@ -155,7 +155,7 @@ Java_com_qcxr_questcraft_MainActivity_start(JNIEnv *env, jobject mainActivity, j
 
     MainActivity_setVulkanSurface = (*env)->GetStaticMethodID(env, mainActivityClass, "setVulkanSurface", "(Landroid/view/Surface;)V");
     MainActivity_performSystemExit = (*env)->GetStaticMethodID(env, mainActivityClass, "performSystemExit", "()V");
-    XRActivityInput_clickScreenAtPosition = (*env)->GetStaticMethodID(env, xrActivityInputClass, "clickScreenAtPosition","(II)V");
+    XRActivityInput_clickScreenAtPosition = (*env)->GetStaticMethodID(env, xrActivityInputClass, "clickScreenAtPosition", "(FF)V");
 
     g_assetManager = AAssetManager_fromJava(env, assetManager);
 

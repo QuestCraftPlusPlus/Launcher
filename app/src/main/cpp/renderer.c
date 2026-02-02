@@ -9,7 +9,6 @@
 #include "xr_init.h"
 #include "xr_linear_algebra.h"
 #include "xr_input.h"
-#include "renderer_types.h"
 #include "main.h"
 
 #include <media/NdkImageReader.h>
@@ -24,67 +23,7 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 
-typedef struct {
-    XrMatrix4x4f projectionViews[2]; // Max 2 views usually (apparently the fucking varjo has 4???)
-    XrMatrix4x4f modelMatrix;
-} UboViewData;
-
-typedef struct {
-    AHardwareBuffer* hb;
-    VkImage image;
-    VkDeviceMemory memory;
-    VkImageView view;
-    uint32_t last_frame_used;
-} surface_buffer_t;
-
-typedef struct {
-    VkImage image;
-    VmaAllocation allocation;
-    VkImageView imageView;
-} native_surface_texture_t;
-
-struct {
-    VkPipelineLayout pipelineLayout;
-    VkPipeline worldPipeline;
-    VkPipeline linePipeline;
-    VkPipeline blitPipeline;
-
-    VkRenderPass renderPass;
-    VkExtent2D depthSize;
-    VkImage depthImage;
-    VmaAllocation depthAlloc;
-    VkImageView depthImageView;
-
-    VkFramebuffer* framebuffers;
-    uint32_t framebufferCount;
-    VkImageView* swapchainImageViews;
-
-    vk_model_t worldModel;
-    vk_model_t targetRectModel;
-    vk_model_t leftRay;
-    vk_model_t rightRay;
-
-    vk_texture_t atlas;
-    vk_texture_t light;
-
-    AImageReader* surfaceReader;
-    native_surface_texture_t* surfaceTextures;
-    VkSampler surfaceSampler;
-
-    VkDescriptorPool descriptorPool;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkDescriptorSet* descriptorSets;
-
-    VkDescriptorSetLayout set0Layout;
-    VkDescriptorSetLayout set1Layout;
-
-    VkBuffer uniformBuffer;
-    VmaAllocation uniformAlloc;
-    void* uniformMappedData;
-
-    VkCommandBuffer* cmdBuffers;
-    VkFence* renderFences;
-} vk_rs;
+render_state_t vk_rs;
 
 static bool createShaderModule(const char* filename, AAssetManager* assetManager, VkShaderModule* outModule) {
     off64_t length;
@@ -340,7 +279,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
     vkCreateDescriptorSetLayout(vkinfo.device, &layoutInfo1, NULL, &vk_rs.set1Layout);
 
-    VkDescriptorSetLayout layouts[] = { vk_rs.set0Layout, vk_rs.set1Layout };
+    VkDescriptorSetLayout layouts[] = {vk_rs.set0Layout, vk_rs.set1Layout };
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 2,
@@ -354,8 +293,8 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
             {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 3 * sizeof(float)} // Tex Light (Offset 12)
     };
     vk_rs.worldPipeline = createPipelineHelper(am, "lightmap.vert.spv", "lightmap.frag.spv",
-                                               worldBinding, worldAttribs, 2,
-                                               VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
+                                                        worldBinding, worldAttribs, 2,
+                                                        VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
 
     VkVertexInputBindingDescription lineBinding = {0, 6 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription lineAttribs[] = {
@@ -363,8 +302,8 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof(float)}    // Color (Offset 12)
     };
     vk_rs.linePipeline = createPipelineHelper(am, "single_color.vert.spv", "single_color.frag.spv",
-                                              lineBinding, lineAttribs, 2,
-                                              VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, true, VK_CULL_MODE_NONE, renderPass);
+                                                       lineBinding, lineAttribs, 2,
+                                                       VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, true, VK_CULL_MODE_NONE, renderPass);
 
     VkVertexInputBindingDescription blitBinding = { 0, 5 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX };
     VkVertexInputAttributeDescription blitAttribs[] = {
@@ -373,8 +312,8 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
 
     vk_rs.blitPipeline = createPipelineHelper(am, "blit.vert.spv", "blit.frag.spv",
-                                              blitBinding, blitAttribs, 2,
-                                              VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, VK_CULL_MODE_FRONT_BIT, renderPass);
+                                                       blitBinding, blitAttribs, 2,
+                                                       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, VK_CULL_MODE_FRONT_BIT, renderPass);
     LOGI("Pipelines initialized");
 }
 
@@ -467,7 +406,7 @@ static void ensureRenderResources(VkExtent2D extent) {
         };
         vkCreateImageView(vkinfo.device, &viewInfo, NULL, &vk_rs.swapchainImageViews[i]);
 
-        VkImageView attachments[] = { vk_rs.swapchainImageViews[i], vk_rs.depthImageView };
+        VkImageView attachments[] = {vk_rs.swapchainImageViews[i], vk_rs.depthImageView };
         VkFramebufferCreateInfo fbInfo = {
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = vk_rs.renderPass,
@@ -573,7 +512,7 @@ static void createDescriptorPools() {
         VkDescriptorSet set0 = vk_rs.descriptorSets[i * 2 + 0];
         VkDescriptorSet set1 = vk_rs.descriptorSets[i * 2 + 1];
 
-        VkDescriptorBufferInfo bufferInfo = { vk_rs.uniformBuffer, 0, sizeof(UboViewData) };
+        VkDescriptorBufferInfo bufferInfo = {vk_rs.uniformBuffer, 0, sizeof(UboViewData) };
 
         VkDescriptorImageInfo imageInfos[3] = {
                 { .sampler = vk_rs.atlas.sampler, .imageView = vk_rs.atlas.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
@@ -598,8 +537,6 @@ static void createDescriptorPools() {
     }
 }
 
-#define SURFACE_WIDTH 2560
-#define SURFACE_HEIGHT 1440
 static void createSurface() {
     AImageReader_newWithUsage(SURFACE_WIDTH, SURFACE_HEIGHT, AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, (int)xrinfo.renderTarget.swapchainImageCount, &vk_rs.surfaceReader);
 

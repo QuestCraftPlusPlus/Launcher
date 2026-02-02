@@ -11,6 +11,8 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 #include "main.h"
+#include "renderer_types.h"
+#include "renderer.h"
 
 xr_input_t xrInput;
 
@@ -23,6 +25,17 @@ static XrPath handPaths[2];
 static XrSpace handPoseSpace[2];
 static XrActionStatePose handPoseState[2] = {{XR_TYPE_ACTION_STATE_POSE}, {XR_TYPE_ACTION_STATE_POSE}};
 XrActionStateBoolean clickScreenState[2] = {{XR_TYPE_ACTION_STATE_BOOLEAN}, {XR_TYPE_ACTION_STATE_BOOLEAN}};
+
+static XrVector3f screenTri1[3] =  {
+        { 3, 8, 21.9f},
+        {-5, 8, 21.9f},
+        {-5, 4, 21.9f},
+};
+static XrVector3f screenTri2[3] =  {
+        { 3, 8, 21.9f},
+        {-5, 4, 21.9f},
+        { 3, 4, 21.9f}
+};
 
 bool createActionSet() {
     XrActionSetCreateInfo actionSetCreateInfo = {XR_TYPE_ACTION_SET_CREATE_INFO};
@@ -178,79 +191,72 @@ bool pollActions(XrTime predictedTime) {
         actionStateGetInfo.subactionPath = handPaths[i];
         XR_FAILRETURN(xrGetActionStateBoolean(xrinfo.session, &actionStateGetInfo, &clickScreenState[i]), false);
         if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync) {
-            vibrate[i] = 1.0f;
-            clickScreenAtPosition(getJniEnv(), 1, 1);
+            float u, v;
+
+            if (controllerRayIntersectsScreen(i, &u, &v)) {
+                vibrate[i] = 1.0f;
+                clickScreenAtPosition(getJniEnv(), 1.0f - u, v);
+            }
         }
     }
 
     return true;
 }
 
-// controller ray
+bool controllerRayIntersectsScreen(int controllerIndex, float* u, float* v) {
+    XrVector3f rayStart, rayEnd;
+    getControllerRay(controllerIndex, ((UboViewData*)vk_rs.uniformMappedData)->modelMatrix, &rayStart, &rayEnd);
 
-static XrVector3f screenTri1[3] =  {
-        { 3, 8, 21.9f},
-        {-5, 8, 21.9f},
-        {-5, 4, 21.9f},
-};
-static XrVector3f screenTri2[3] =  {
-        { 3, 8, 21.9f},
-        {-5, 4, 21.9f},
-        { 3, 4, 21.9f}
-};
+    XrVector3f rayDir;
+    XrVector3f_Sub(&rayDir, &rayEnd, &rayStart);
+    XrVector3f_Normalize(&rayDir);
 
-bool rayIntersectsTriangle(XrVector3f rayOrigin, XrVector3f rayVector, XrVector3f triangle[3], XrVector3f* outIntersectionPoint) {
-    static const float EPSILON = 0.000001f;
-    XrVector3f vertex0 = triangle[0];
-    XrVector3f vertex1 = triangle[1];
-    XrVector3f vertex2 = triangle[2];
-    XrVector3f edge1, edge2, h, s, q;
-    float a, f, u, v;
+    float t;
+    bool hit = false;
+    float finalU = 0, finalV = 0;
 
-    XrVector3f_Sub(&edge1, &vertex1, &vertex0);
-    XrVector3f_Sub(&edge2, &vertex2, &vertex0);
-    XrVector3f_Cross(&h, &rayVector, &edge2);
-    a = XrVector3f_Dot(&edge1, &h);
-
-    if (a > -EPSILON && a < EPSILON) {
-        return false; // ray is parallel
+    if (rayIntersectsTriangle(rayStart, rayDir, screenTri1, u, v, &t)) {
+        finalU = 1.0f - (*u + *v);
+        finalV = *v;
+        hit = true;
+    } else if (rayIntersectsTriangle(rayStart, rayDir, screenTri2, u, v, &t)) {
+        finalU = 1.0f - *u;
+        finalV = *u + *v;
+        hit = true;
     }
 
-    f = 1.0f / a;
-    XrVector3f_Sub(&s, &rayOrigin, &vertex0);
-    u = f * XrVector3f_Dot(&s, &h);
-
-    if (u < 0.0f || u > 1.0f) {
-        return false;
-    }
-
-    XrVector3f_Cross(&q, &s, &edge1);
-    v = f * XrVector3f_Dot(&rayVector, &q);
-
-    if (v < 0.0f || u + v > 1.0f) {
-        return false;
-    }
-
-    float t = f * XrVector3f_Dot(&edge2, &q);
-    if (t > EPSILON) {
-        XrVector3f len;
-        XrVector3f_Scale(&len, &rayVector, t);
-        XrVector3f_Add(outIntersectionPoint, &rayOrigin, &len);
-        return true;
-    } else {
-        return false;
-    }
+    *u = 1.0f - finalU;
+    *v = finalV;
+    return hit;
 }
 
-bool rayIntersectsScreen(XrVector3f rayOrigin, XrVector3f rayVector, XrVector3f* outIntersectionPoint) {
-    return rayIntersectsTriangle(rayOrigin, rayVector, screenTri1, outIntersectionPoint) || rayIntersectsTriangle(rayOrigin, rayVector, screenTri2, outIntersectionPoint);
-}
+bool rayIntersectsTriangle(XrVector3f origin, XrVector3f direction, XrVector3f* tri, float* u, float* v, float* t) {
+    const float EPSILON = 0.0000001f;
+    XrVector3f edge1 = { tri[1].x - tri[0].x, tri[1].y - tri[0].y, tri[1].z - tri[0].z };
+    XrVector3f edge2 = { tri[2].x - tri[0].x, tri[2].y - tri[0].y, tri[2].z - tri[0].z };
 
-bool normalizeVectorToScreen(XrVector2f* out, XrVector3f point) {
-    if (point.z != screenTri1[0].z) return false; // point is not on screen
-    out->x = (point.x + 5) / 8;
-    out->y = (point.y - 4) / 4;
-    return true;
+    XrVector3f h = { direction.y * edge2.z - direction.z * edge2.y,
+                     direction.z * edge2.x - direction.x * edge2.z,
+                     direction.x * edge2.y - direction.y * edge2.x };
+    float a = edge1.x * h.x + edge1.y * h.y + edge1.z * h.z;
+
+    if (a > -EPSILON && a < EPSILON) return false;
+
+    float f = 1.0f / a;
+    XrVector3f s = { origin.x - tri[0].x, origin.y - tri[0].y, origin.z - tri[0].z };
+    (*u) = f * (s.x * h.x + s.y * h.y + s.z * h.z);
+
+    if ((*u) < 0.0f || (*u) > 1.0f) return false;
+
+    XrVector3f q = { s.y * edge1.z - s.z * edge1.y,
+                     s.z * edge1.x - s.x * edge1.z,
+                     s.x * edge1.y - s.y * edge1.x };
+    (*v) = f * (direction.x * q.x + direction.y * q.y + direction.z * q.z);
+
+    if ((*v) < 0.0f || (*u) + (*v) > 1.0f) return false;
+
+    (*t) = f * (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
+    return ((*t) > EPSILON);
 }
 
 void getControllerRay(int controller, XrMatrix4x4f model, XrVector3f* startOut, XrVector3f* endOut) {

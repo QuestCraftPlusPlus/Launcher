@@ -17,13 +17,6 @@ find_package(OpenXR REQUIRED CONFIG)
 include(FetchContent)
 
 FetchContent_Declare(
-    volk
-    GIT_REPOSITORY https://github.com/zeux/volk.git
-    GIT_TAG 1.4.304
-)
-FetchContent_MakeAvailable(volk)
-
-FetchContent_Declare(
     VulkanMemoryAllocator
     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
     GIT_TAG v3.3.0

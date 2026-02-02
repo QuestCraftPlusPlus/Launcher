@@ -18,7 +18,7 @@ import java.lang.ref.WeakReference;
 
 public class MainActivity extends Activity {
     private static Handler uiThreadHandler;
-    private static WeakReference<MainActivity> weakMe;
+    public static WeakReference<MainActivity> weakMe;
     private NativeSurface nativeSurface;
     @SuppressLint("StaticFieldLeak")
     public static WebView webView;

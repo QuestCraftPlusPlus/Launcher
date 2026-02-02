@@ -21,6 +21,6 @@ static inline JNIEnv* getJniEnv() {
 }
 
 void setVulkanSurface(JNIEnv *env, jobject surface);
-void clickScreenAtPosition(JNIEnv *env, int x, int y);
+void clickScreenAtPosition(JNIEnv *env, float x, float y);
 
 #endif //QUESTCRAFT_MAIN_H

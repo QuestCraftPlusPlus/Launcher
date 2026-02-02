@@ -6,6 +6,16 @@
 #define QUESTCRAFT_RENDERER_TYPES_H
 
 #include "xr_include.h"
+#include "xr_linear_algebra.h"
+#include <media/NdkImageReader.h>
+
+#define SURFACE_WIDTH 2560
+#define SURFACE_HEIGHT 1440
+
+typedef struct {
+    XrMatrix4x4f projectionViews[2]; // Max 2 views usually (apparently the fucking varjo has 4???)
+    XrMatrix4x4f modelMatrix;
+} UboViewData;
 
 typedef struct {
     VkBuffer buffer;
@@ -25,5 +35,54 @@ typedef struct {
     uint32_t arrayLayers;
     VkSampler sampler;
 } vk_texture_t;
+
+typedef struct {
+    VkImage image;
+    VmaAllocation allocation;
+    VkImageView imageView;
+} native_surface_texture_t;
+
+typedef struct {
+    VkPipelineLayout pipelineLayout;
+    VkPipeline worldPipeline;
+    VkPipeline linePipeline;
+    VkPipeline blitPipeline;
+
+    VkRenderPass renderPass;
+    VkExtent2D depthSize;
+    VkImage depthImage;
+    VmaAllocation depthAlloc;
+    VkImageView depthImageView;
+
+    VkFramebuffer* framebuffers;
+    uint32_t framebufferCount;
+    VkImageView* swapchainImageViews;
+
+    vk_model_t worldModel;
+    vk_model_t targetRectModel;
+    vk_model_t leftRay;
+    vk_model_t rightRay;
+
+    vk_texture_t atlas;
+    vk_texture_t light;
+
+    AImageReader* surfaceReader;
+    native_surface_texture_t* surfaceTextures;
+    VkSampler surfaceSampler;
+
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorSet* descriptorSets;
+
+    VkDescriptorSetLayout set0Layout;
+    VkDescriptorSetLayout set1Layout;
+
+    VkBuffer uniformBuffer;
+    VmaAllocation uniformAlloc;
+    void* uniformMappedData;
+
+    VkCommandBuffer* cmdBuffers;
+    VkFence* renderFences;
+} render_state_t;
 
 #endif //QUESTCRAFT_RENDERER_TYPES_H
