@@ -11,7 +11,6 @@ typedef struct {
     VkBuffer buffer;
     VmaAllocation allocation;
     uint32_t vertexCount;
-    VkPipeline pipeline; // note: this is actually really bad architecturally, but I am way too lazy to fix it rn
 } vk_model_t;
 
 typedef struct {

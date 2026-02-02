@@ -12,7 +12,9 @@ layout(location = 1) in vec2 vertex_uv;
 layout(location = 0) out vec2 tex_coord;
 
 void main() {
-    gl_Position = (ubo.projection_views[gl_ViewIndex] * ubo.model) * vec4(vertex_pos, 1.0);
+    vec3 pos = vertex_pos;
+//    pos.y = -pos.y;
+    gl_Position = (ubo.projection_views[gl_ViewIndex] * ubo.model) * vec4(pos, 1.0);
     gl_Position.y = -gl_Position.y;
     tex_coord = vertex_uv;
 }

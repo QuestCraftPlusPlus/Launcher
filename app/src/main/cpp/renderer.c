@@ -192,7 +192,7 @@ static bool loadAssetModel(vk_model_t* model, const char* filename, AAssetManage
 static VkPipeline createPipelineHelper(AAssetManager* am, const char* vertName, const char* fragName,
                                        VkVertexInputBindingDescription bindingDesc,
                                        VkVertexInputAttributeDescription* attribs, uint32_t attribCount,
-                                       VkPrimitiveTopology topology, bool depthTest, bool blend, VkRenderPass renderPass) {
+                                       VkPrimitiveTopology topology, bool depthTest, bool blend, VkCullModeFlagBits cullMode, VkRenderPass renderPass) {
 
     VkShaderModule vertModule, fragModule;
     if (!createShaderModule(vertName, am, &vertModule)) return VK_NULL_HANDLE;
@@ -246,7 +246,7 @@ static VkPipeline createPipelineHelper(AAssetManager* am, const char* vertName, 
             .rasterizerDiscardEnable = VK_FALSE,
             .polygonMode = VK_POLYGON_MODE_FILL,
             .lineWidth = 1.0f,
-            .cullMode = VK_CULL_MODE_BACK_BIT,
+            .cullMode = cullMode,
             .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depthBiasEnable = VK_FALSE
     };
@@ -355,7 +355,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
     vk_rs.worldPipeline = createPipelineHelper(am, "lightmap.vert.spv", "lightmap.frag.spv",
                                                worldBinding, worldAttribs, 2,
-                                               VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, renderPass);
+                                               VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
 
     VkVertexInputBindingDescription lineBinding = {0, 6 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription lineAttribs[] = {
@@ -364,11 +364,17 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
     vk_rs.linePipeline = createPipelineHelper(am, "single_color.vert.spv", "single_color.frag.spv",
                                               lineBinding, lineAttribs, 2,
-                                              VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, true, renderPass);
+                                              VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, true, VK_CULL_MODE_NONE, renderPass);
+
+    VkVertexInputBindingDescription blitBinding = { 0, 5 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX };
+    VkVertexInputAttributeDescription blitAttribs[] = {
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
+            {1, 0, VK_FORMAT_R32G32_SFLOAT, 3 * sizeof(float)}
+    };
 
     vk_rs.blitPipeline = createPipelineHelper(am, "blit.vert.spv", "blit.frag.spv",
-                                              worldBinding, worldAttribs, 2,
-                                              VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, true, renderPass);
+                                              blitBinding, blitAttribs, 2,
+                                              VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, VK_CULL_MODE_FRONT_BIT, renderPass);
     LOGI("Pipelines initialized");
 }
 
@@ -937,20 +943,21 @@ void renderFrame(frame_begin_end_state_t *state) {
 
     VkDeviceSize offsets[] = {0};
 
-    // World
-    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
     VkDescriptorSet sets[] = {
             vk_rs.descriptorSets[state->frame.imageIndex * 2 + 0],
             vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
     };
     vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
+
+    // World
+    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
     vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
     vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
 
     // Screen
     vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);
     vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.targetRectModel.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.targetRectModel.vertexCount, 1, 0, 0);
+    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], 6, 1, 0, 0);
 
     // Rays
     vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.linePipeline);
