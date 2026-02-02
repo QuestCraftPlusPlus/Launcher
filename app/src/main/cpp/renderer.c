@@ -931,6 +931,7 @@ static void destroyVkModel(vk_model_t* model) {
 static void destroyVkTexture(vk_texture_t* tex) {
     if (tex->view) vkDestroyImageView(vkinfo.device, tex->view, NULL);
     if (tex->image) vmaDestroyImage(vkinfo.allocator, tex->image, tex->allocation);
+    if (tex->sampler) vkDestroySampler(vkinfo.device, tex->sampler, NULL);
 }
 
 void cleanupRenderer() {
@@ -960,7 +961,6 @@ void cleanupRenderer() {
     }
     vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set0Layout, NULL);
     vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set1Layout, NULL);
-    vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.descriptorSetLayout, NULL);
 
     destroyVkModel(&vk_rs.worldModel);
     destroyVkModel(&vk_rs.targetRectModel);
@@ -969,6 +969,20 @@ void cleanupRenderer() {
 
     destroyVkTexture(&vk_rs.atlas);
     destroyVkTexture(&vk_rs.light);
+
+    if (vk_rs.surfaceSampler) {
+        vkDestroySampler(vkinfo.device, vk_rs.surfaceSampler, NULL);
+    }
+    if (vk_rs.surfaceTextures) {
+        for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
+            vkDestroyImageView(vkinfo.device, vk_rs.surfaceTextures[i].imageView, NULL);
+            vmaDestroyImage(vkinfo.allocator, vk_rs.surfaceTextures[i].image, vk_rs.surfaceTextures[i].allocation);
+        }
+        free(vk_rs.surfaceTextures);
+    }
+    if (vk_rs.surfaceReader) {
+        AImageReader_delete(vk_rs.surfaceReader);
+    }
 
     if (vk_rs.uniformMappedData) {
         vmaUnmapMemory(vkinfo.allocator, vk_rs.uniformAlloc);

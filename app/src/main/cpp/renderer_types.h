@@ -71,7 +71,6 @@ typedef struct {
     VkSampler surfaceSampler;
 
     VkDescriptorPool descriptorPool;
-    VkDescriptorSetLayout descriptorSetLayout;
     VkDescriptorSet* descriptorSets;
 
     VkDescriptorSetLayout set0Layout;
