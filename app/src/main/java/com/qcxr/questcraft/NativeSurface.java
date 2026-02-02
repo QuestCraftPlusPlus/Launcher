@@ -2,6 +2,7 @@ package com.qcxr.questcraft;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.SurfaceTexture;
 import android.view.Choreographer;
 import android.view.Surface;
 import android.view.View;
@@ -27,7 +28,11 @@ public class NativeSurface extends FrameLayout implements Choreographer.FrameCal
     }
 
     public void setSurface(Surface surface) {
-        post(()->setSurfaceInternal(surface));
+        post(()-> {
+            this.surface = surface;
+            this.hasSurface = true;
+            choreographer.postFrameCallback(this);
+        });
     }
 
     private void setSurfaceInternal(Surface surface) {

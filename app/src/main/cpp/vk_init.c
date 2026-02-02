@@ -73,7 +73,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         __android_log_print(ANDROID_LOG_ERROR, "QuestCraft Validation", "Vulkan Validation Error: %s", pCallbackData->pMessage);
-//        raise(SIGTRAP);
+        raise(SIGTRAP);
     } else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         __android_log_print(ANDROID_LOG_WARN, "QuestCraft Validation", "Vulkan Validation Warning: %s", pCallbackData->pMessage);
     } else {

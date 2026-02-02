@@ -3,12 +3,10 @@ package com.qcxr.questcraft;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.res.AssetManager;
-import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.Surface;
 import android.view.ViewGroup;
 import android.webkit.WebResourceRequest;
@@ -60,7 +58,7 @@ public class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     public static void setVulkanSurface(Surface surface) {
         MainActivity me = weakMe.get();
-        if (me == null || surface == null) return;
+        if (me == null) return;
 
         int w = 2560;
         int h = 1440;
@@ -90,6 +88,11 @@ public class MainActivity extends Activity {
 
     public static void performSystemExit() {
         uiThreadHandler.post(()->{
+            MainActivity me = weakMe.get();
+            if (me != null) {
+
+            }
+
             System.exit(0);
         });
     }

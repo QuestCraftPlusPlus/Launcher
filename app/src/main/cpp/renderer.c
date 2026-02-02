@@ -38,17 +38,10 @@ typedef struct {
 } surface_buffer_t;
 
 typedef struct {
-    ANativeWindow* window;
-    AImageReader* reader;
-
-    surface_buffer_t* buffers;
-    VkSampler sampler;
-    VkSamplerYcbcrConversion conversion;
-
-    int width;
-    int height;
-    bool frameReady;
-} native_surface_t;
+    VkImage image;
+    VmaAllocation allocation;
+    VkImageView imageView;
+} native_surface_texture_t;
 
 struct {
     VkPipelineLayout pipelineLayout;
@@ -74,7 +67,9 @@ struct {
     vk_texture_t atlas;
     vk_texture_t light;
 
-    native_surface_t surface;
+    AImageReader* surfaceReader;
+    native_surface_texture_t* surfaceTextures;
+    VkSampler surfaceSampler;
 
     VkDescriptorPool descriptorPool;
     VkDescriptorSetLayout descriptorSetLayout;
@@ -335,7 +330,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
                     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                    .pImmutableSamplers = &vk_rs.surface.sampler
+                    .pImmutableSamplers = &vk_rs.surfaceSampler
             }
     };
     VkDescriptorSetLayoutCreateInfo layoutInfo1 = {
@@ -577,7 +572,7 @@ static void createDescriptorPools() {
         VkDescriptorImageInfo imageInfos[3] = {
                 { .sampler = vk_rs.atlas.sampler, .imageView = vk_rs.atlas.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
                 { .sampler = vk_rs.light.sampler, .imageView = vk_rs.light.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-                { .sampler = vk_rs.surface.sampler, .imageView = VK_NULL_HANDLE, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
+                { .sampler = vk_rs.surfaceSampler, .imageView = vk_rs.surfaceTextures[i].imageView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
         };
 
         VkWriteDescriptorSet writes[3];
@@ -589,175 +584,218 @@ static void createDescriptorPools() {
     }
 }
 
-PFN_vkGetAndroidHardwareBufferPropertiesANDROID pfnGetAndroidHardwareBufferPropertiesANDROID;
-
+#define SURFACE_WIDTH 2560
+#define SURFACE_HEIGHT 1440
 static void createSurface() {
-    if (!pfnGetAndroidHardwareBufferPropertiesANDROID) {
-        pfnGetAndroidHardwareBufferPropertiesANDROID = (PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
-                vkGetDeviceProcAddr(vkinfo.device, "vkGetAndroidHardwareBufferPropertiesANDROID");
-    }
-
-    vk_rs.surface.buffers = malloc(xrinfo.renderTarget.swapchainImageCount * sizeof(surface_buffer_t));
-    media_status_t status = AImageReader_newWithUsage(
-            2560, 1440,
-            AIMAGE_FORMAT_RGBA_8888,
-            AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-            (int)xrinfo.renderTarget.swapchainImageCount,
-            &vk_rs.surface.reader
-    );
-
-    AImageReader_getWindow(vk_rs.surface.reader, &vk_rs.surface.window);
+    AImageReader_newWithUsage(SURFACE_WIDTH, SURFACE_HEIGHT, AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, (int)xrinfo.renderTarget.swapchainImageCount, &vk_rs.surfaceReader);
 
     JNIEnv* env = getJniEnv();
-    jobject jSurface = ANativeWindow_toSurface(env, vk_rs.surface.window);
-    setVulkanSurface(env, jSurface);
 
-    PFN_vkCreateSamplerYcbcrConversion pfnCreateSamplerYcbcrConversion =
-            (PFN_vkCreateSamplerYcbcrConversion)vkGetDeviceProcAddr(vkinfo.device, "vkCreateSamplerYcbcrConversion");
+    ANativeWindow *window;
+    AImageReader_getWindow(vk_rs.surfaceReader, &window);
+    jobject surface = ANativeWindow_toSurface(env, window);
+    setVulkanSurface(env, surface);
 
-    VkSamplerYcbcrConversionCreateInfo convInfo = {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO,
-            .format = VK_FORMAT_R8G8B8A8_UNORM,
-            .ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_RGB_IDENTITY,
-            .ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
-            .components = {VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY,VK_COMPONENT_SWIZZLE_IDENTITY},
-            .chromaFilter = VK_FILTER_LINEAR,
-            .forceExplicitReconstruction = VK_FALSE
-    };
-    pfnCreateSamplerYcbcrConversion(vkinfo.device, &convInfo, NULL, &vk_rs.surface.conversion);
+    vk_rs.surfaceTextures = malloc(xrinfo.renderTarget.swapchainImageCount * sizeof(native_surface_texture_t));
+    for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
+        VkImageCreateInfo imageInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .imageType = VK_IMAGE_TYPE_2D,
+                .extent = { SURFACE_WIDTH, SURFACE_HEIGHT, 1 },
+                .mipLevels = 1,
+                .arrayLayers = 1,
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .tiling = VK_IMAGE_TILING_OPTIMAL,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, // We will transition this
+                .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .samples = VK_SAMPLE_COUNT_1_BIT
+        };
 
-    VkSamplerYcbcrConversionInfo conversionInfo = {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
-            .conversion = vk_rs.surface.conversion
-    };
+        VmaAllocationCreateInfo allocInfo = { .usage = VMA_MEMORY_USAGE_GPU_ONLY };
+
+        vmaCreateImage(vkinfo.allocator, &imageInfo, &allocInfo,
+                       &vk_rs.surfaceTextures[i].image,
+                       &vk_rs.surfaceTextures[i].allocation, NULL);
+
+        VkImageViewCreateInfo viewInfo = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = vk_rs.surfaceTextures[i].image,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+        };
+        vkCreateImageView(vkinfo.device, &viewInfo, NULL, &vk_rs.surfaceTextures[i].imageView);
+    }
+
 
     VkSamplerCreateInfo samplerInfo = {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .pNext = &conversionInfo,
             .magFilter = VK_FILTER_LINEAR,
             .minFilter = VK_FILTER_LINEAR,
             .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
             .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
             .anisotropyEnable = VK_FALSE,
-            .unnormalizedCoordinates = VK_FALSE
+            .maxAnisotropy = 1.0f,
+            .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+            .compareEnable = VK_FALSE,
+            .compareOp = VK_COMPARE_OP_ALWAYS,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .mipLodBias = 0.0f,
+            .minLod = 0.0f,
+            .maxLod = 1.0f,
     };
-    vkCreateSampler(vkinfo.device, &samplerInfo, NULL, &vk_rs.surface.sampler);
+
+    vkCreateSampler(vkinfo.device, &samplerInfo, NULL, &vk_rs.surfaceSampler);
 }
+
+PFN_vkGetAndroidHardwareBufferPropertiesANDROID pfnGetAndroidHardwareBufferPropertiesANDROID = NULL;
 
 static void importSurfaceData(frame_begin_end_state_t* state) {
     AImage* image = NULL;
-    if (AImageReader_acquireLatestImage(vk_rs.surface.reader, &image) != AMEDIA_OK) return;
+    if (AImageReader_acquireLatestImage(vk_rs.surfaceReader, &image) != AMEDIA_OK || !image) {
+        return;
+    }
 
     AHardwareBuffer* buffer = NULL;
     AImage_getHardwareBuffer(image, &buffer);
+    AHardwareBuffer_acquire(buffer); // incrs refcount
 
-    uint32_t slot = state->frame.imageIndex;
-    if (vk_rs.surface.buffers[slot].hb != NULL) {
-        vkDestroyImageView(vkinfo.device, vk_rs.surface.buffers[slot].view, NULL);
-        vk_rs.surface.buffers[slot].view = NULL;
-        vkDestroyImage(vkinfo.device, vk_rs.surface.buffers[slot].image, NULL);
-        vk_rs.surface.buffers[slot].image = NULL;
-        vkFreeMemory(vkinfo.device, vk_rs.surface.buffers[slot].memory, NULL);
-        vk_rs.surface.buffers[slot].memory = NULL;
-        AHardwareBuffer_release(vk_rs.surface.buffers[slot].hb);
-        vk_rs.surface.buffers[slot].hb = NULL;
+    VkExternalMemoryImageCreateInfo extImageInfo = {
+            .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
+    };
+
+    VkImageCreateInfo imageInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = &extImageInfo,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .extent = { SURFACE_WIDTH, SURFACE_HEIGHT, 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VkImage tempImage;
+    vkCreateImage(vkinfo.device, &imageInfo, NULL, &tempImage);
+
+    VkAndroidHardwareBufferPropertiesANDROID ahbProps = {
+            .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID
+    };
+
+    if (!pfnGetAndroidHardwareBufferPropertiesANDROID) {
+        pfnGetAndroidHardwareBufferPropertiesANDROID = (PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
+                vkGetDeviceProcAddr(vkinfo.device, "vkGetAndroidHardwareBufferPropertiesANDROID");
     }
 
-    if (vk_rs.surface.buffers[slot].hb != buffer) {
-        vk_rs.surface.buffers[slot].hb = buffer;
-        AHardwareBuffer_acquire(buffer);
-
-        AHardwareBuffer_Desc desc;
-        AHardwareBuffer_describe(buffer, &desc);
-
-        VkAndroidHardwareBufferFormatPropertiesANDROID formatProps = {
-                .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID
-        };
-        VkAndroidHardwareBufferPropertiesANDROID props = {
-                .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
-                .pNext = &formatProps
-        };
-        pfnGetAndroidHardwareBufferPropertiesANDROID(vkinfo.device, buffer, &props);
-
-        VkExternalMemoryImageCreateInfo externalInfo = {
-                .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-                .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
-        };
-
-        VkImageCreateInfo icharInfo = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                .pNext = &externalInfo,
-                .imageType = VK_IMAGE_TYPE_2D,
-                .format = formatProps.format,
-                .extent = {2560, 1440, 1},
-                .mipLevels = 1,
-                .arrayLayers = 1,
-                .samples = VK_SAMPLE_COUNT_1_BIT,
-                .tiling = VK_IMAGE_TILING_OPTIMAL,
-                .usage = VK_IMAGE_USAGE_SAMPLED_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-        };
-        vkCreateImage(vkinfo.device, &icharInfo, NULL, &vk_rs.surface.buffers[slot].image);
-
-        VkImportAndroidHardwareBufferInfoANDROID importInfo = {
-                .sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
-                .buffer = buffer
-        };
-
-        VkMemoryDedicatedAllocateInfo dedicatedInfo = {
-                .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
-                .pNext = &importInfo,
-                .image = vk_rs.surface.buffers[slot].image,
-                .buffer = VK_NULL_HANDLE
-        };
-
-        VkMemoryAllocateInfo allocInfo = {
-                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                .pNext = &dedicatedInfo,
-                .allocationSize = props.allocationSize,
-                .memoryTypeIndex = findMemoryType(props.memoryTypeBits, 0)
-        };
-
-        vkAllocateMemory(vkinfo.device, &allocInfo, NULL, &vk_rs.surface.buffers[slot].memory);
-        vkBindImageMemory(vkinfo.device, vk_rs.surface.buffers[slot].image,
-                          vk_rs.surface.buffers[slot].memory, 0);
-
-        VkSamplerYcbcrConversionInfo conversionInfo = {
-                .sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
-                .conversion = vk_rs.surface.conversion
-        };
-
-        VkImageViewCreateInfo viewInfo = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .pNext = &conversionInfo,
-                .image = vk_rs.surface.buffers[slot].image,
-                .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                .format = formatProps.format,
-                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
-        };
-
-        vkCreateImageView(vkinfo.device, &viewInfo, NULL, &vk_rs.surface.buffers[slot].view);
-
-        VkDescriptorImageInfo webViewInfo = {
-                .sampler = VK_NULL_HANDLE,
-                .imageView = vk_rs.surface.buffers[slot].view,
-                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-
-        VkWriteDescriptorSet write = {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
-                .dstBinding = 2,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .pImageInfo = &webViewInfo
-        };
-        vkUpdateDescriptorSets(vkinfo.device, 1, &write, 0, NULL);
+    if (!pfnGetAndroidHardwareBufferPropertiesANDROID) {
+        LOGE("Failed to load vkGetAndroidHardwareBufferPropertiesANDROID! "
+             "Ensure VK_ANDROID_external_memory_android_hardware_buffer is enabled.");
     }
 
-    vk_rs.surface.buffers[slot].last_frame_used = state->frame.imageIndex;
+    pfnGetAndroidHardwareBufferPropertiesANDROID(vkinfo.device, buffer, &ahbProps);
+
+    VkMemoryDedicatedAllocateInfo dedicatedInfo = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+            .pNext = NULL,
+            .image = tempImage,
+            .buffer = VK_NULL_HANDLE
+    };
+
+    VkImportAndroidHardwareBufferInfoANDROID importInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
+            .pNext = &dedicatedInfo,
+            .buffer = buffer
+    };
+
+    VkMemoryAllocateInfo memAllocInfo = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = &importInfo,
+            .allocationSize = ahbProps.allocationSize,
+            .memoryTypeIndex = findMemoryType(ahbProps.memoryTypeBits, 0)
+    };
+
+    VkDeviceMemory tempMem;
+    vkAllocateMemory(vkinfo.device, &memAllocInfo, NULL, &tempMem);
+    vkBindImageMemory(vkinfo.device, tempImage, tempMem, 0);
+
+    VkCommandBufferAllocateInfo cmdAlloc = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = vkinfo.commandPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1
+    };
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(vkinfo.device, &cmdAlloc, &cmd);
+
+    VkCommandBufferBeginInfo begin = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+    vkBeginCommandBuffer(cmd, &begin);
+
+    VkImageMemoryBarrier barrier1 = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .image = tempImage,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
+    };
+
+    VkImage targetImage = vk_rs.surfaceTextures[state->frame.imageIndex].image;
+    VkImageMemoryBarrier barrier2 = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .image = targetImage,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
+    };
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier1);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier2);
+
+    VkImageCopy copyRegion = {
+            .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+            .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+            .extent = { SURFACE_WIDTH, SURFACE_HEIGHT, 1 }
+    };
+    vkCmdCopyImage(cmd, tempImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, targetImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+    VkImageMemoryBarrier barrier3 = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .image = targetImage,
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier3);
+
+    VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    VkFence fence;
+    vkCreateFence(vkinfo.device, &fenceInfo, NULL, &fence);
+
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo submit = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cmd };
+    vkQueueSubmit(vkinfo.graphicsQueue, 1, &submit, fence);
+    vkWaitForFences(vkinfo.device, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkQueueWaitIdle(vkinfo.graphicsQueue);
+    vkFreeCommandBuffers(vkinfo.device, vkinfo.commandPool, 1, &cmd);
+    vkDestroyFence(vkinfo.device, fence, NULL);
+
+    vkDestroyImage(vkinfo.device, tempImage, NULL);
+    vkFreeMemory(vkinfo.device, tempMem, NULL);
+
+    AHardwareBuffer_release(buffer);
     AImage_delete(image);
 }
 
@@ -944,33 +982,6 @@ static void destroyVkTexture(vk_texture_t* tex) {
 void cleanupRenderer() {
     if (vkinfo.device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(vkinfo.device);
-    }
-
-    if (vk_rs.surface.buffers) {
-        for (int i = 0; i < xrinfo.renderTarget.swapchainImageCount; i++) {
-            if (vk_rs.surface.buffers[i].hb != NULL) {
-                vkDestroyImageView(vkinfo.device, vk_rs.surface.buffers[i].view, NULL);
-                vkDestroyImage(vkinfo.device, vk_rs.surface.buffers[i].image, NULL);
-                vkFreeMemory(vkinfo.device, vk_rs.surface.buffers[i].memory, NULL);
-                AHardwareBuffer_release(vk_rs.surface.buffers[i].hb);
-            }
-        }
-        free(vk_rs.surface.buffers);
-        vk_rs.surface.buffers = NULL;
-    }
-
-    if (vk_rs.surface.sampler != VK_NULL_HANDLE) {
-        vkDestroySampler(vkinfo.device, vk_rs.surface.sampler, NULL);
-    }
-    if (vk_rs.surface.conversion != VK_NULL_HANDLE) {
-        PFN_vkDestroySamplerYcbcrConversion pfnDestroySamplerYcbcrConversion =
-                (PFN_vkDestroySamplerYcbcrConversion)vkGetDeviceProcAddr(vkinfo.device, "vkDestroySamplerYcbcrConversion");
-
-        pfnDestroySamplerYcbcrConversion(vkinfo.device, vk_rs.surface.conversion, NULL);
-    }
-    if (vk_rs.surface.reader != NULL) {
-        AImageReader_delete(vk_rs.surface.reader);
-        vk_rs.surface.window = NULL;
     }
 
     if (vk_rs.renderFences) {
