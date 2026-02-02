@@ -575,12 +575,20 @@ static void createDescriptorPools() {
                 { .sampler = vk_rs.surfaceSampler, .imageView = vk_rs.surfaceTextures[i].imageView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
         };
 
-        VkWriteDescriptorSet writes[3];
+        VkWriteDescriptorSet writes[4];
         writes[0] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set0, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .pBufferInfo = &bufferInfo };
         writes[1] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[0] };
         writes[2] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[1] };
+        writes[3] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = set1,
+                .dstBinding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .pImageInfo = &imageInfos[2]
+        };
 
-        vkUpdateDescriptorSets(vkinfo.device, 3, writes, 0, NULL);
+        vkUpdateDescriptorSets(vkinfo.device, 4, writes, 0, NULL);
     }
 }
 
@@ -606,7 +614,7 @@ static void createSurface() {
                 .arrayLayers = 1,
                 .format = VK_FORMAT_R8G8B8A8_UNORM,
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
-                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, // We will transition this
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
                 .samples = VK_SAMPLE_COUNT_1_BIT
@@ -627,7 +635,6 @@ static void createSurface() {
         };
         vkCreateImageView(vkinfo.device, &viewInfo, NULL, &vk_rs.surfaceTextures[i].imageView);
     }
-
 
     VkSamplerCreateInfo samplerInfo = {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -780,17 +787,11 @@ static void importSurfaceData(frame_begin_end_state_t* state) {
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier3);
 
-    VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    VkFence fence;
-    vkCreateFence(vkinfo.device, &fenceInfo, NULL, &fence);
-
     vkEndCommandBuffer(cmd);
     VkSubmitInfo submit = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cmd };
-    vkQueueSubmit(vkinfo.graphicsQueue, 1, &submit, fence);
-    vkWaitForFences(vkinfo.device, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkQueueSubmit(vkinfo.graphicsQueue, 1, &submit, NULL);
     vkQueueWaitIdle(vkinfo.graphicsQueue);
     vkFreeCommandBuffers(vkinfo.device, vkinfo.commandPool, 1, &cmd);
-    vkDestroyFence(vkinfo.device, fence, NULL);
 
     vkDestroyImage(vkinfo.device, tempImage, NULL);
     vkFreeMemory(vkinfo.device, tempMem, NULL);
@@ -820,6 +821,7 @@ bool initRenderer(AAssetManager *assetManager) {
     }
 
     createSurface();
+
     loadTextures(assetManager);
 
     createBuffer(sizeof(UboViewData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, &vk_rs.uniformBuffer, &vk_rs.uniformAlloc);
@@ -945,6 +947,7 @@ void renderFrame(frame_begin_end_state_t *state) {
     vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
     vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
 
+    // Screen
     vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);
     vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.targetRectModel.buffer, offsets);
     vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.targetRectModel.vertexCount, 1, 0, 0);
