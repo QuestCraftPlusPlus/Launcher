@@ -1,7 +1,7 @@
 
 #include "xr_init.h"
 #include "xr_render.h"
-#include "gles_init.h"
+#include "vk_init.h"
 #include "renderer.h"
 
 #include <pthread.h>
@@ -12,7 +12,6 @@
 #define LOG_TAG __FILE_NAME__
 #include "log.h"
 
-#include "multiview_detect.h"
 #include "asset_buffer_read.h"
 #include "xr_input.h"
 #include <android/asset_manager_jni.h>
@@ -25,26 +24,21 @@ static AAssetManager *g_assetManager;
 static android_jni_data_t jniData;
 static jclass mainActivityClass;
 static jclass xrActivityInputClass;
-static jmethodID MainActivity_createSurfaceTexture;
-static jmethodID MainActivity_updateSurfaceTexture;
+static jmethodID MainActivity_setVulkanSurface;
 static jmethodID MainActivity_performSystemExit;
 static jmethodID XRActivityInput_clickScreenAtPosition;
 static bool shouldStopJni;
-JNIEnv *globalEnv;
+JavaVM *globalVm;
 
 static void performSystemExit(JNIEnv *env) {
     (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_performSystemExit);
 }
 
-static void updateSurfaceTexture(JNIEnv *env) {
-    (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_updateSurfaceTexture);
+void setVulkanSurface(JNIEnv *env, jobject surface) {
+    (*env)->CallStaticVoidMethod(env, mainActivityClass, MainActivity_setVulkanSurface, surface);
 }
 
-static bool createSurfaceTexture(JNIEnv *env, int textureId) {
-    return (*env)->CallStaticBooleanMethod(env, mainActivityClass, MainActivity_createSurfaceTexture, textureId);
-}
-
-void clickScreenAtPosition(JNIEnv *env, int x, int y) {
+void clickScreenAtPosition(JNIEnv *env, float x, float y) {
     (*env)->CallStaticVoidMethod(env, xrActivityInputClass, XRActivityInput_clickScreenAtPosition, x, y);
 }
 
@@ -105,14 +99,16 @@ static bool poll_events(struct event_state *state) {
 
 static void* main_loop(void* data) {
     (void)data;
-    (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &globalEnv, NULL);
-    if(!initRenderer(g_assetManager)) return NULL;
-    if(!createSurfaceTexture(globalEnv, getRenderTargetName())) goto destroy_gles;
-    if(!xriInitialize(&jniData)) goto destroy_gles;
+    JNIEnv *env;
+    (*jniData.applicationVm)->AttachCurrentThread(jniData.applicationVm, &env, NULL);
+    globalVm = jniData.applicationVm;
+    if (!xriInitialize(&jniData)) goto fatal_exit;
+    if (!initVulkan(xrinfo.instance, xrinfo.systemId)) goto free_xri;
     createActionSet();
     createDefaultActions();
     createSuggestedBindings();
-    if(!xriInitSession()) goto free_xri;
+    if(!xriInitSession()) goto free_vulkan;
+    if (!initRenderer(g_assetManager)) goto free_vulkan;
     createActionPoses();
     attachActionSet();
 
@@ -131,19 +127,20 @@ static void* main_loop(void* data) {
             continue;
         }
         if(!beginFrame(&state)) goto exit;
-        updateSurfaceTexture(globalEnv);
         renderFrame(&state);
         endFrame(&state);
     }
 
     exit:
     freeBeginEndState(&state);
+    cleanupRenderer();
+    free_vulkan:
+    destroyVulkan();
     free_xri:
     xriFree();
-    destroy_gles:
-    destroyOpenGLES();
+    fatal_exit:
 
-    performSystemExit(globalEnv);
+    performSystemExit(env);
 
     pthread_exit(NULL);
 }
@@ -156,10 +153,9 @@ Java_com_qcxr_questcraft_MainActivity_start(JNIEnv *env, jobject mainActivity, j
     mainActivityClass = (*env)->NewGlobalRef(env, (*env)->GetObjectClass(env, mainActivity));
     xrActivityInputClass = (*env)->NewGlobalRef(env, (*env)->GetObjectClass(env, xrActivityInput));
 
-    MainActivity_createSurfaceTexture = (*env)->GetStaticMethodID(env, mainActivityClass, "createSurfaceTexture", "(I)Z");
-    MainActivity_updateSurfaceTexture = (*env)->GetStaticMethodID(env, mainActivityClass, "updateSurfaceTexture", "()V");
+    MainActivity_setVulkanSurface = (*env)->GetStaticMethodID(env, mainActivityClass, "setVulkanSurface", "(Landroid/view/Surface;)V");
     MainActivity_performSystemExit = (*env)->GetStaticMethodID(env, mainActivityClass, "performSystemExit", "()V");
-    XRActivityInput_clickScreenAtPosition = (*env)->GetStaticMethodID(env, xrActivityInputClass, "clickScreenAtPosition","(II)V");
+    XRActivityInput_clickScreenAtPosition = (*env)->GetStaticMethodID(env, xrActivityInputClass, "clickScreenAtPosition", "(FF)V");
 
     g_assetManager = AAssetManager_fromJava(env, assetManager);
 
