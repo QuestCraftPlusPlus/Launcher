@@ -5,8 +5,8 @@
 #ifndef QUESTCRAFT_RENDERER_TYPES_H
 #define QUESTCRAFT_RENDERER_TYPES_H
 
-#include "xr_include.h"
-#include "xr_linear_algebra.h"
+#include "../xr/xr_include.h"
+#include "../xr/xr_linear_algebra.h"
 #include <media/NdkImageReader.h>
 
 #define SURFACE_WIDTH 2560

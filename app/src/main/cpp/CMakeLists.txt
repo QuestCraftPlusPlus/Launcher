@@ -36,15 +36,15 @@ FetchContent_MakeAvailable(ktx)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ multiSource files with relative paths to this CMakeLists.txt.
-        vma_hack.cpp
+        rendering/vma_hack.cpp
         main.c
-        xr_init.c
-        xr_render.c
-        xr_input.c
-        vk_init.c
-        ktx_texture.c
-        asset_buffer_read.c
-        renderer.c)
+        xr/xr_init.c
+        xr/xr_render.c
+        xr/xr_input.c
+        rendering/vk_init.c
+        rendering/ktx_texture.c
+        rendering/asset_buffer_read.c
+        rendering/renderer.c)
 
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES C_VISIBILITY_PRESET hidden)
 

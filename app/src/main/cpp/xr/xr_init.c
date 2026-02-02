@@ -2,7 +2,7 @@
 // Created by maks on 03.12.2024.
 //
 
-#include "vk_init.h"
+#include "../rendering/vk_init.h"
 #include "xr_include.h"
 #include "xr_init.h"
 
@@ -10,7 +10,7 @@
 #include <stdlib.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "../util/log.h"
 
 xr_state_t xrinfo;
 

@@ -9,10 +9,10 @@
 #include <stdlib.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
-#include "main.h"
-#include "renderer_types.h"
-#include "renderer.h"
+#include "../util/log.h"
+#include "../main.h"
+#include "../rendering/renderer_types.h"
+#include "../rendering/renderer.h"
 
 xr_input_t xrInput;
 

@@ -6,7 +6,7 @@
 #define QCXR_RENDERER_H
 #include <stdbool.h>
 #include <android/asset_manager.h>
-#include "xr_render.h"
+#include "../xr/xr_render.h"
 #include "renderer_types.h"
 
 void renderFrame(frame_begin_end_state_t *state);

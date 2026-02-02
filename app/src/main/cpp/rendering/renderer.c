@@ -6,10 +6,10 @@
 #include "asset_buffer_read.h"
 #include "ktx_texture.h"
 #include "vk_init.h"
-#include "xr_init.h"
-#include "xr_linear_algebra.h"
-#include "xr_input.h"
-#include "main.h"
+#include "../xr/xr_init.h"
+#include "../xr/xr_linear_algebra.h"
+#include "../xr/xr_input.h"
+#include "../main.h"
 
 #include <media/NdkImageReader.h>
 #include <android/native_window.h>
@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "../util/log.h"
 
 render_state_t vk_rs;
 

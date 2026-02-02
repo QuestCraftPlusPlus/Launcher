@@ -1,8 +1,8 @@
 
-#include "xr_init.h"
-#include "xr_render.h"
-#include "vk_init.h"
-#include "renderer.h"
+#include "xr/xr_init.h"
+#include "xr/xr_render.h"
+#include "rendering/vk_init.h"
+#include "rendering/renderer.h"
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -10,10 +10,10 @@
 #include <unistd.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "util/log.h"
 
-#include "asset_buffer_read.h"
-#include "xr_input.h"
+#include "rendering/asset_buffer_read.h"
+#include "xr/xr_input.h"
 #include <android/asset_manager_jni.h>
 
 //

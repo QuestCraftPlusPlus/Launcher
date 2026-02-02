@@ -88,11 +88,7 @@ public class MainActivity extends Activity {
 
     public static void performSystemExit() {
         uiThreadHandler.post(()->{
-            MainActivity me = weakMe.get();
-            if (me != null) {
-
-            }
-
+            weakMe.get();
             System.exit(0);
         });
     }

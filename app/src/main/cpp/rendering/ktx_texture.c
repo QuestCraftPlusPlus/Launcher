@@ -6,16 +6,16 @@
 
 #include "ktx_texture.h"
 #include "vk_init.h"
-#include <ktx.h>
-#include <ktxvulkan.h>
+#include "ktx.h"
+#include "ktxvulkan.h"
 #include <stdlib.h>
 #include <math.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "../util/log.h"
 
 #define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
+#include "../util/stb_ds.h"
 
 typedef struct {
     VmaAllocation allocation;

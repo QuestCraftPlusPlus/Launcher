@@ -2,8 +2,8 @@
 // Created by firef on 1/30/2026.
 //
 
-#include "xr_include.h"
-#include "log.h"
+#include "../xr/xr_include.h"
+#include "../util/log.h"
 #include <stdbool.h>
 
 #ifndef QCXR_VK_INIT_H

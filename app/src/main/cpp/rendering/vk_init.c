@@ -7,7 +7,7 @@
 #include "vk_init.h"
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "../util/log.h"
 
 vk_info_t vkinfo = {0};
 

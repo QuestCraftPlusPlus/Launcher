@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #define LOG_TAG __FILE_NAME__
-#include "log.h"
+#include "../util/log.h"
 
 void* readAssetToBuffer(asset_info_t* uploadInfo, off64_t* assetSize) {
     AAsset *textureAsset = AAssetManager_open(uploadInfo->assetManager, uploadInfo->path, AASSET_MODE_STREAMING);
