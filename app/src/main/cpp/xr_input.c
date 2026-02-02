@@ -192,10 +192,9 @@ bool pollActions(XrTime predictedTime) {
         XR_FAILRETURN(xrGetActionStateBoolean(xrinfo.session, &actionStateGetInfo, &clickScreenState[i]), false);
         if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync) {
             float u, v;
-
             if (controllerRayIntersectsScreen(i, &u, &v)) {
                 vibrate[i] = 1.0f;
-                clickScreenAtPosition(getJniEnv(), 1.0f - u, v);
+                clickScreenAtPosition(getJniEnv(), u, v);
             }
         }
     }
@@ -211,22 +210,25 @@ bool controllerRayIntersectsScreen(int controllerIndex, float* u, float* v) {
     XrVector3f_Sub(&rayDir, &rayEnd, &rayStart);
     XrVector3f_Normalize(&rayDir);
 
-    float t;
+    float tempU, tempV, t;
     bool hit = false;
     float finalU = 0, finalV = 0;
 
-    if (rayIntersectsTriangle(rayStart, rayDir, screenTri1, u, v, &t)) {
-        finalU = 1.0f - (*u + *v);
-        finalV = *v;
+    if (rayIntersectsTriangle(rayStart, rayDir, screenTri1, &tempU, &tempV, &t)) {
+        finalU = 1.0f - (tempU + tempV);
+        finalV = tempV;
         hit = true;
-    } else if (rayIntersectsTriangle(rayStart, rayDir, screenTri2, u, v, &t)) {
-        finalU = 1.0f - *u;
-        finalV = *u + *v;
+    } else if (rayIntersectsTriangle(rayStart, rayDir, screenTri2, &tempU, &tempV, &t)) {
+        finalU = 1.0f - tempU;
+        finalV = tempU + tempV;
         hit = true;
     }
 
-    *u = 1.0f - finalU;
-    *v = finalV;
+    if (hit) {
+        *u = 1.0f - finalU;
+        *v = finalV;
+    }
+
     return hit;
 }
 

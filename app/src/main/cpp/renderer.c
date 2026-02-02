@@ -844,7 +844,14 @@ void renderFrame(frame_begin_end_state_t *state) {
         vk_model_t* line = (i == 0) ? &vk_rs.leftRay : &vk_rs.rightRay;
         XrVector3f start, end;
         getControllerRay(i, modelMat, &start, &end);
-        updateLines(line, (XrVector3f){1,0,0}, start, end);
+        XrVector3f dir;
+        XrVector3f_Sub(&dir, &end, &start);
+        XrVector3f_Normalize(&dir);
+        XrVector3f scaled;
+        XrVector3f_Scale(&scaled, &dir, 10.0f);
+        XrVector3f newEnd;
+        XrVector3f_Add(&newEnd, &start, &scaled);
+        updateLines(line, (XrVector3f){1,0,0}, start, newEnd);
     }
 
     XrExtent2Di rect = state->frame.outputRect.extent;
