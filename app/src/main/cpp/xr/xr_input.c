@@ -14,17 +14,19 @@
 #include "../rendering/renderer_types.h"
 #include "../rendering/renderer.h"
 
-xr_input_t xrInput;
+xr_input_t xrInput = {.worldRotationY = 180.0f};
 
 static XrActionSet actionSet = XR_NULL_HANDLE;
 static XrAction palmPoseAction = XR_NULL_HANDLE;
 static XrAction vibrateAction = XR_NULL_HANDLE;
 static XrAction clickScreenAction = XR_NULL_HANDLE;
+static XrAction rotateCameraAction = XR_NULL_HANDLE;
 static float vibrate[2] = {0, 0};
 static XrPath handPaths[2];
 static XrSpace handPoseSpace[2];
 static XrActionStatePose handPoseState[2] = {{XR_TYPE_ACTION_STATE_POSE}, {XR_TYPE_ACTION_STATE_POSE}};
 XrActionStateBoolean clickScreenState[2] = {{XR_TYPE_ACTION_STATE_BOOLEAN}, {XR_TYPE_ACTION_STATE_BOOLEAN}};
+XrActionStateVector2f rotateCameraState[1] = {{XR_TYPE_ACTION_STATE_VECTOR2F}};
 
 static XrVector3f screenTri1[3] =  {
         { 3, 8, 21.9f},
@@ -52,7 +54,7 @@ bool createAction(XrAction* xrAction, char name[], char localizedName[], XrActio
     strncpy(actionCreateInfo.actionName, name, XR_MAX_ACTION_NAME_SIZE);
     strncpy(actionCreateInfo.localizedActionName, localizedName, XR_MAX_LOCALIZED_ACTION_NAME_SIZE);
     actionCreateInfo.countSubactionPaths = subaction_count;
-    actionCreateInfo.subactionPaths = handPaths;
+    actionCreateInfo.subactionPaths = subaction_count > 0 ? handPaths : NULL;
     XR_FAILRETURN(xrCreateAction(actionSet, &actionCreateInfo, xrAction), false);
     return true;
 }
@@ -63,6 +65,7 @@ bool createDefaultActions() {
     createAction(&palmPoseAction, "palm-pose", "Palm Pose",XR_ACTION_TYPE_POSE_INPUT, 2);
     createAction(&vibrateAction, "vibrate", "Vibrate", XR_ACTION_TYPE_VIBRATION_OUTPUT, 2);
     createAction(&clickScreenAction, "clickscreen", "Click Screen", XR_ACTION_TYPE_BOOLEAN_INPUT, 2);
+    createAction(&rotateCameraAction, "rotatecamera", "Rotate Camera", XR_ACTION_TYPE_VECTOR2F_INPUT, 0);
     return true;
 }
 
@@ -88,15 +91,21 @@ bool createSuggestedBindings() {
     XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/left/input/trigger/value", &clickScreenPath[0]), false);
     XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/right/input/trigger/value", &clickScreenPath[1]), false);
 
-    const XrActionSuggestedBinding bindings[6] = {
-            palmPoseAction, posePath[0],
-            palmPoseAction, posePath[1],
+    XrPath rotateCameraPath;
+    XR_FAILRETURN(xrStringToPath(xrinfo.instance, "/user/hand/right/input/thumbstick", &rotateCameraPath), false);
 
-            vibrateAction, vibratePath[0],
-            vibrateAction, vibratePath[1],
 
-            clickScreenAction, clickScreenPath[0],
-            clickScreenAction, clickScreenPath[1]
+    const XrActionSuggestedBinding bindings[7] = {
+            {palmPoseAction, posePath[0]},
+            {palmPoseAction, posePath[1]},
+
+            {vibrateAction, vibratePath[0]},
+            {vibrateAction, vibratePath[1]},
+
+            {clickScreenAction, clickScreenPath[0]},
+            {clickScreenAction, clickScreenPath[1]},
+
+            {rotateCameraAction, rotateCameraPath}
     };
 
     XrPath controllerPath;
@@ -104,7 +113,7 @@ bool createSuggestedBindings() {
     if (controllerPath == XR_NULL_PATH) {
         LOGE("Controller binding NULL: %s", __func__ );
     }
-    suggestBindings(controllerPath, bindings, 6);
+    suggestBindings(controllerPath, bindings, 7);
     return true;
 }
 
@@ -190,12 +199,27 @@ bool pollActions(XrTime predictedTime) {
     for (int i = 0; i < 2; i++) {
         actionStateGetInfo.subactionPath = handPaths[i];
         XR_FAILRETURN(xrGetActionStateBoolean(xrinfo.session, &actionStateGetInfo, &clickScreenState[i]), false);
-        if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync) {
+        if (clickScreenState[i].isActive && clickScreenState[i].changedSinceLastSync && clickScreenState[i].currentState) {
             float u, v;
             if (controllerRayIntersectsScreen(i, &u, &v)) {
                 vibrate[i] = 1.0f;
                 clickScreenAtPosition(getJniEnv(), u, v);
             }
+        }
+    }
+
+    actionStateGetInfo.action = rotateCameraAction;
+    actionStateGetInfo.subactionPath = XR_NULL_PATH;
+    XR_FAILRETURN(xrGetActionStateVector2f(xrinfo.session, &actionStateGetInfo, &rotateCameraState[0]), false);
+    static bool canTurn = true;
+    if (rotateCameraState[0].isActive) {
+        if (fabsf(rotateCameraState[0].currentState.x) > 0.7f) {
+            if (canTurn) {
+                xrInput.worldRotationY += (rotateCameraState[0].currentState.y > 0 ? -45.0f : 45.0f);
+                canTurn = false;
+            }
+        } else if (fabsf(rotateCameraState[0].currentState.x) < 0.3f) {
+            canTurn = true;
         }
     }
 

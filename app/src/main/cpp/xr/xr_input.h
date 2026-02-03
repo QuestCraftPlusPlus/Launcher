@@ -11,6 +11,7 @@
 
 typedef struct {
     XrPosef handPose[2];
+    float worldRotationY;
 } xr_input_t;
 
 extern xr_input_t xrInput;

@@ -813,7 +813,7 @@ static void updateUniforms(frame_begin_end_state_t *state) {
 
     XrMatrix4x4f model_translate, model_rotate;
     XrMatrix4x4f_CreateTranslation(&model_translate, 1.5f, -2, -15.5f);
-    XrMatrix4x4f_CreateRotation(&model_rotate, 0, 180, 0);
+    XrMatrix4x4f_CreateRotation(&model_rotate, 0, xrInput.worldRotationY, 0);
     XrMatrix4x4f_Multiply(&ubo.modelMatrix, &model_rotate, &model_translate);
 
     memcpy(vk_rs.uniformMappedData, &ubo, sizeof(UboViewData));
