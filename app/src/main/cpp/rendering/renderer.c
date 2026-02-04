@@ -909,8 +909,8 @@ bool initSMAA(AAssetManager* am) {
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
     };
 
-    loadKtxEx(&(asset_info_t){am, "area.ktx"}, &vk_rs.smaa.areaTex, areaSamplerInfo);
-    loadKtxEx(&(asset_info_t){am, "search.ktx"}, &vk_rs.smaa.searchTex, searchSamplerInfo);
+    loadKtxEx(&(asset_info_t){am, "antialiasing/smaa/area.ktx"}, &vk_rs.smaa.areaTex, areaSamplerInfo);
+    loadKtxEx(&(asset_info_t){am, "antialiasing/smaa/search.ktx"}, &vk_rs.smaa.searchTex, searchSamplerInfo);
 
     createSMAARenderPasses();
 
@@ -943,15 +943,15 @@ bool initSMAA(AAssetManager* am) {
     vkCreatePipelineLayout(vkinfo.device, &pipelineLayoutInfo, NULL, &vk_rs.smaa.pipelineLayout);
 
     VkVertexInputBindingDescription emptyBinding = {0};
-    vk_rs.smaa.edgePipeline = createPipelineHelper(am, "smaa_edge.vert.spv", "smaa_edge.frag.spv",
+    vk_rs.smaa.edgePipeline = createPipelineHelper(am, "antialiasing/smaa/smaa_edge.vert.spv", "antialiasing/smaa/smaa_edge.frag.spv",
                                                   vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
                                                   VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.smaa.edgePass);
 
-    vk_rs.smaa.weightPipeline = createPipelineHelper(am, "smaa_weight.vert.spv", "smaa_weight.frag.spv",
+    vk_rs.smaa.weightPipeline = createPipelineHelper(am, "antialiasing/smaa/smaa_weight.vert.spv", "antialiasing/smaa/smaa_weight.frag.spv",
                                                     vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
                                                     VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.smaa.weightPass);
 
-    vk_rs.smaa.blendPipeline = createPipelineHelper(am, "smaa_blend.vert.spv", "smaa_blend.frag.spv",
+    vk_rs.smaa.blendPipeline = createPipelineHelper(am, "antialiasing/smaa/smaa_blend.vert.spv", "antialiasing/smaa/smaa_blend.frag.spv",
                                                    vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
                                                    VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.renderPass);
 
