@@ -1,4 +1,4 @@
-#define SMAA_PRESENT_MEDIUM
+#define SMAA_PRESET_MEDIUM 1
 #define SMAA_GLSL_4
 
 layout(push_constant) uniform Constants {
