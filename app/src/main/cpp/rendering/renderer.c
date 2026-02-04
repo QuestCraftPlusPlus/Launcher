@@ -129,6 +129,7 @@ static bool loadAssetModel(vk_model_t* model, const char* filename, AAssetManage
 }
 
 static VkPipeline createPipelineHelper(AAssetManager* am, const char* vertName, const char* fragName,
+                                       VkPipelineLayout layout,
                                        VkVertexInputBindingDescription bindingDesc,
                                        VkVertexInputAttributeDescription* attribs, uint32_t attribCount,
                                        VkPrimitiveTopology topology, bool depthTest, bool blend, VkCullModeFlagBits cullMode, VkRenderPass renderPass) {
@@ -235,7 +236,7 @@ static VkPipeline createPipelineHelper(AAssetManager* am, const char* vertName, 
             .pDepthStencilState = &depthStencil,
             .pColorBlendState = &colorBlending,
             .pDynamicState = &dynamicState,
-            .layout = vk_rs.pipelineLayout,
+            .layout = layout,
             .renderPass = renderPass,
             .subpass = 0
     };
@@ -287,12 +288,46 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
     vkCreatePipelineLayout(vkinfo.device, &pipelineLayoutInfo, NULL, &vk_rs.pipelineLayout);
 
+    VkDescriptorSetLayoutBinding gltfTexBindings[] = {
+            { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL },
+            { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL },
+    };
+    VkDescriptorSetLayoutCreateInfo gltfDescriptorLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = 2,
+            .pBindings = gltfTexBindings
+    };
+    vkCreateDescriptorSetLayout(vkinfo.device, &gltfDescriptorLayoutInfo, NULL, &vk_rs.gltfDescriptorSetLayout);
+
+    VkDescriptorSetLayout gltfLayouts[] = {
+            vk_rs.set0Layout,
+            vk_rs.gltfDescriptorSetLayout
+    };
+    VkPipelineLayoutCreateInfo gltfPipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 2,
+            .pSetLayouts = gltfLayouts
+    };
+    vkCreatePipelineLayout(vkinfo.device, &gltfPipelineLayoutInfo, NULL, &vk_rs.gltfPipelineLayout);
+
+    VkVertexInputBindingDescription gltfBinding = {0, 8 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
+    VkVertexInputAttributeDescription gltfAttribs[] = {
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},                  // Position (Offset 0)
+            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof(float)},  // Normal (Offset 12)
+            {2, 0, VK_FORMAT_R32G32_SFLOAT, 6 * sizeof(float)}      // UV (Offset 24)
+    };
+    vk_rs.gltfPipeline = createPipelineHelper(am, "gltf.vert.spv", "gltf.frag.spv",
+                                              vk_rs.gltfPipelineLayout,
+                                              gltfBinding, gltfAttribs, 3,
+                                              VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
+
     VkVertexInputBindingDescription worldBinding = {0, 8 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription worldAttribs[] = {
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},               // Position (Offset 0)
             {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 3 * sizeof(float)} // Tex Light (Offset 12)
     };
     vk_rs.worldPipeline = createPipelineHelper(am, "lightmap.vert.spv", "lightmap.frag.spv",
+                                                        vk_rs.pipelineLayout,
                                                         worldBinding, worldAttribs, 2,
                                                         VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
 
@@ -302,6 +337,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof(float)}    // Color (Offset 12)
     };
     vk_rs.linePipeline = createPipelineHelper(am, "single_color.vert.spv", "single_color.frag.spv",
+                                                       vk_rs.pipelineLayout,
                                                        lineBinding, lineAttribs, 2,
                                                        VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, true, VK_CULL_MODE_NONE, renderPass);
 
@@ -312,6 +348,7 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
     };
 
     vk_rs.blitPipeline = createPipelineHelper(am, "blit.vert.spv", "blit.frag.spv",
+                                                       vk_rs.pipelineLayout,
                                                        blitBinding, blitAttribs, 2,
                                                        VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, VK_CULL_MODE_FRONT_BIT, renderPass);
     LOGI("Pipelines initialized");
@@ -795,6 +832,8 @@ bool initRenderer(AAssetManager *assetManager) {
         vkCreateFence(vkinfo.device, &fenceInfo, NULL, &vk_rs.renderFences[i]);
     }
 
+    model_load(&(asset_info_t){.path = "scene.glb", .assetManager = assetManager}, &vk_rs.worldModelGltf);
+
     LOGI("Renderer initialized successfully (Vulkan)");
     return true;
 }
@@ -891,12 +930,20 @@ void renderFrame(frame_begin_end_state_t *state) {
             vk_rs.descriptorSets[state->frame.imageIndex * 2 + 0],
             vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
     };
-    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
+
 
     // World
-    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
+//    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
+//    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
+//    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
+
+    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.gltfPipeline);
+    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            vk_rs.gltfPipelineLayout, 0, 1,
+                            &vk_rs.descriptorSets[imgIndex * 2], 0, NULL);
+    model_draw(vk_rs.cmdBuffers[imgIndex], imgIndex, &vk_rs.worldModelGltf);
+
+    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
 
     // Screen
     vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);

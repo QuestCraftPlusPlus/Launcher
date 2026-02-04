@@ -15,7 +15,7 @@
 #include "../util/log.h"
 
 #define STB_DS_IMPLEMENTATION
-#include "../util/stb_ds.h"
+#include "../third_party/stb_ds.h"
 
 typedef struct {
     VmaAllocation allocation;
@@ -200,7 +200,7 @@ bool loadKtx(asset_info_t* uploadInfo, vk_texture_t* outTexture) {
     ktxVulkanDeviceInfo_Destruct(&deviceInfo);
     free(buffer);
 
-    LOGI("Created a KTX texture from %s successfully with a sampler %p", uploadInfo->path, outTexture->sampler);
+    LOGI("Created a KTX texture from %s successfully with image: %p, view %p, sampler %p", uploadInfo->path, outTexture->image, outTexture->view, outTexture->sampler);
 
     return true;
 }

@@ -44,7 +44,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         rendering/vk_init.c
         rendering/ktx_texture.c
         rendering/asset_buffer_read.c
-        rendering/renderer.c)
+        rendering/renderer.c
+        rendering/vk_gltf.c)
 
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES C_VISIBILITY_PRESET hidden)
 

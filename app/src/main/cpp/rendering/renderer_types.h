@@ -7,6 +7,7 @@
 
 #include "../xr/xr_include.h"
 #include "../xr/xr_linear_algebra.h"
+#include "vk_gltf.h"
 #include <media/NdkImageReader.h>
 
 #define SURFACE_WIDTH 2560
@@ -63,6 +64,8 @@ typedef struct {
     vk_model_t leftRay;
     vk_model_t rightRay;
 
+    gltf_model_t worldModelGltf;
+
     vk_texture_t atlas;
     vk_texture_t light;
 
@@ -75,6 +78,10 @@ typedef struct {
 
     VkDescriptorSetLayout set0Layout;
     VkDescriptorSetLayout set1Layout;
+
+    VkDescriptorSetLayout gltfDescriptorSetLayout;
+    VkPipelineLayout gltfPipelineLayout;
+    VkPipeline gltfPipeline;
 
     VkBuffer uniformBuffer;
     VmaAllocation uniformAlloc;

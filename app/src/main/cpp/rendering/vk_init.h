@@ -27,8 +27,15 @@ typedef struct {
     bool initialized;
 } vk_info_t;
 
+typedef struct {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocationInfo;
+} allocated_buffer_t;
+
 extern vk_info_t vkinfo;
 
+bool upload_to_gpu(void* data, size_t size, VkBufferUsageFlagBits usage, allocated_buffer_t* buffer_out);
 uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 bool initVulkan(XrInstance xrInstance, XrSystemId systemId);
 void destroyVulkan();

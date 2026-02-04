@@ -4,12 +4,34 @@
 
 #include <malloc.h>
 #include <signal.h>
+#include <string.h>
 #include "vk_init.h"
 
 #define LOG_TAG __FILE_NAME__
 #include "../util/log.h"
 
 vk_info_t vkinfo = {0};
+
+bool upload_to_gpu(void* data, size_t size, VkBufferUsageFlagBits usage, allocated_buffer_t* buffer_out) {
+    if (data == NULL || size == 0) return false;
+
+    VkBufferCreateInfo bufferInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .usage = usage,
+            .size = size,
+    };
+    VmaAllocationCreateInfo allocInfo = {
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO
+    };
+
+    VkResult res = vmaCreateBuffer(vkinfo.allocator, &bufferInfo, &allocInfo, &buffer_out->buffer, &buffer_out->allocation, &buffer_out->allocationInfo);
+
+    if (res != VK_SUCCESS) return false;
+    memcpy(buffer_out->allocationInfo.pMappedData, data, size);
+
+    return true;
+}
 
 uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties memProperties;
