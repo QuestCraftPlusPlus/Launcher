@@ -766,9 +766,271 @@ static void importSurfaceData(frame_begin_end_state_t* state) {
     AImage_delete(image);
 }
 
+static void createAttachmentImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, vk_texture_t* out) {
+    VkImageCreateInfo imageInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .extent = {width, height, 1},
+            .mipLevels = 1,
+            .arrayLayers = xrinfo.nViews,
+            .format = format,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .usage = usage | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo allocInfo = { .usage = VMA_MEMORY_USAGE_GPU_ONLY };
+    vmaCreateImage(vkinfo.allocator, &imageInfo, &allocInfo, &out->image, &out->allocation, NULL);
+
+    VkImageViewCreateInfo viewInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = out->image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+            .format = format,
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, xrinfo.nViews}
+    };
+    vkCreateImageView(vkinfo.device, &viewInfo, NULL, &out->view);
+}
+
+static void createSMAARenderPasses() {
+    uint32_t viewMask = (1 << xrinfo.nViews) - 1;
+    VkRenderPassMultiviewCreateInfo multiviewInfo = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO,
+            .subpassCount = 1,
+            .pViewMasks = &viewMask
+    };
+
+    VkAttachmentDescription offscreenAtt = {
+            .format = VK_FORMAT_R8G8B8A8_SRGB,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+
+    VkAttachmentDescription depthAtt = {
+            .format = VK_FORMAT_D16_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference offscreenRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference depthRef = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription offscreenSubpass = {
+            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &offscreenRef,
+            .pDepthStencilAttachment = &depthRef
+    };
+
+    VkRenderPassCreateInfo offInfo = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .pNext = &multiviewInfo,
+            .attachmentCount = 2,
+            .pAttachments = (VkAttachmentDescription[]){offscreenAtt, depthAtt},
+            .subpassCount = 1,
+            .pSubpasses = &offscreenSubpass
+    };
+    vkCreateRenderPass(vkinfo.device, &offInfo, NULL, &vk_rs.smaa.offscreenPass);
+
+    VkAttachmentDescription edgeAtt = {
+            .format = VK_FORMAT_R8G8_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+    VkAttachmentReference edgeRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription edgeSubpass = {
+            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &edgeRef
+    };
+    VkRenderPassCreateInfo edgeInfo = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .pNext = &multiviewInfo,
+            .attachmentCount = 1,
+            .pAttachments = &edgeAtt,
+            .subpassCount = 1,
+            .pSubpasses = &edgeSubpass
+    };
+    vkCreateRenderPass(vkinfo.device, &edgeInfo, NULL, &vk_rs.smaa.edgePass);
+
+    VkAttachmentDescription weightAtt = {
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+    VkAttachmentReference weightRef = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription weightSubpass = {
+            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &weightRef
+    };
+    VkRenderPassCreateInfo weightInfo = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .pNext = &multiviewInfo,
+            .attachmentCount = 1,
+            .pAttachments = &weightAtt,
+            .subpassCount = 1,
+            .pSubpasses = &weightSubpass
+    };
+    vkCreateRenderPass(vkinfo.device, &weightInfo, NULL, &vk_rs.smaa.weightPass);
+}
+
+bool initSMAA(AAssetManager* am) {
+    VkSamplerCreateInfo areaSamplerInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+    };
+
+    VkSamplerCreateInfo searchSamplerInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_NEAREST,
+            .minFilter = VK_FILTER_NEAREST,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+    };
+
+    loadKtxEx(&(asset_info_t){am, "area.ktx"}, &vk_rs.smaa.areaTex, areaSamplerInfo);
+    loadKtxEx(&(asset_info_t){am, "search.ktx"}, &vk_rs.smaa.searchTex, searchSamplerInfo);
+
+    createSMAARenderPasses();
+
+    VkDescriptorSetLayoutBinding bindings[] = {
+            {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+            {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, NULL},
+    };
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = 5,
+            .pBindings = bindings
+    };
+    vkCreateDescriptorSetLayout(vkinfo.device, &layoutInfo, NULL, &vk_rs.smaa.descriptorSetLayout);
+
+    VkPushConstantRange pushConstantRange = {
+            .size = 4 * sizeof(float),
+            .stageFlags = VK_SHADER_STAGE_ALL
+    };
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &vk_rs.smaa.descriptorSetLayout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantRange
+    };
+    vkCreatePipelineLayout(vkinfo.device, &pipelineLayoutInfo, NULL, &vk_rs.smaa.pipelineLayout);
+
+    VkVertexInputBindingDescription emptyBinding = {0};
+    vk_rs.smaa.edgePipeline = createPipelineHelper(am, "smaa_edge.vert.spv", "smaa_edge.frag.spv",
+                                                  vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
+                                                  VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.smaa.edgePass);
+
+    vk_rs.smaa.weightPipeline = createPipelineHelper(am, "smaa_weight.vert.spv", "smaa_weight.frag.spv",
+                                                    vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
+                                                    VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.smaa.weightPass);
+
+    vk_rs.smaa.blendPipeline = createPipelineHelper(am, "smaa_blend.vert.spv", "smaa_blend.frag.spv",
+                                                   vk_rs.smaa.pipelineLayout, emptyBinding, NULL, 0,
+                                                   VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, VK_CULL_MODE_NONE, vk_rs.renderPass);
+
+    VkDescriptorPoolSize poolSize = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5};
+    VkDescriptorPoolCreateInfo poolInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .maxSets = 1,
+            .poolSizeCount = 1,
+            .pPoolSizes = &poolSize
+    };
+    vkCreateDescriptorPool(vkinfo.device, &poolInfo, NULL, &vk_rs.smaa.descriptorPool);
+
+    VkDescriptorSetAllocateInfo allocInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = vk_rs.smaa.descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &vk_rs.smaa.descriptorSetLayout
+    };
+    vkAllocateDescriptorSets(vkinfo.device, &allocInfo, &vk_rs.smaa.descriptorSet);
+
+    return true;
+}
+
+static void ensureSMAAResources(VkExtent2D extent) {
+    static VkExtent2D currentExtent = {0, 0};
+    if (currentExtent.width == extent.width && currentExtent.height == extent.height) return;
+
+    currentExtent = extent;
+    vkDeviceWaitIdle(vkinfo.device);
+
+    if (vk_rs.smaa.offscreenFramebuffer) vkDestroyFramebuffer(vkinfo.device, vk_rs.smaa.offscreenFramebuffer, NULL);
+    if (vk_rs.smaa.edgeFramebuffer) vkDestroyFramebuffer(vkinfo.device, vk_rs.smaa.edgeFramebuffer, NULL);
+    if (vk_rs.smaa.weightFramebuffer) vkDestroyFramebuffer(vkinfo.device, vk_rs.smaa.weightFramebuffer, NULL);
+    if (vk_rs.smaa.sceneTargetTexture.view) { vkDestroyImageView(vkinfo.device, vk_rs.smaa.sceneTargetTexture.view, NULL); vmaDestroyImage(vkinfo.allocator, vk_rs.smaa.sceneTargetTexture.image, vk_rs.smaa.sceneTargetTexture.allocation); }
+    if (vk_rs.smaa.edgeTexture.view) { vkDestroyImageView(vkinfo.device, vk_rs.smaa.edgeTexture.view, NULL); vmaDestroyImage(vkinfo.allocator, vk_rs.smaa.edgeTexture.image, vk_rs.smaa.edgeTexture.allocation); }
+    if (vk_rs.smaa.weightTexture.view) { vkDestroyImageView(vkinfo.device, vk_rs.smaa.weightTexture.view, NULL); vmaDestroyImage(vkinfo.allocator, vk_rs.smaa.weightTexture.image, vk_rs.smaa.weightTexture.allocation); }
+
+    createAttachmentImage(extent.width, extent.height, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &vk_rs.smaa.sceneTargetTexture);
+    createAttachmentImage(extent.width, extent.height, VK_FORMAT_R8G8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &vk_rs.smaa.edgeTexture);
+    createAttachmentImage(extent.width, extent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &vk_rs.smaa.weightTexture);
+
+    VkImageView offscreenAtt[] = {vk_rs.smaa.sceneTargetTexture.view, vk_rs.depthImageView};
+    VkFramebufferCreateInfo fbInfo = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = vk_rs.smaa.offscreenPass,
+            .attachmentCount = 2,
+            .pAttachments = offscreenAtt,
+            .width = extent.width, .height = extent.height, .layers = 1
+    };
+    vkCreateFramebuffer(vkinfo.device, &fbInfo, NULL, &vk_rs.smaa.offscreenFramebuffer);
+
+    fbInfo.renderPass = vk_rs.smaa.edgePass;
+    fbInfo.attachmentCount = 1;
+    fbInfo.pAttachments = &vk_rs.smaa.edgeTexture.view;
+    vkCreateFramebuffer(vkinfo.device, &fbInfo, NULL, &vk_rs.smaa.edgeFramebuffer);
+
+    fbInfo.renderPass = vk_rs.smaa.weightPass;
+    fbInfo.pAttachments = &vk_rs.smaa.weightTexture.view;
+    vkCreateFramebuffer(vkinfo.device, &fbInfo, NULL, &vk_rs.smaa.weightFramebuffer);
+
+    VkDescriptorImageInfo sceneInfo = {vk_rs.surfaceSampler, vk_rs.smaa.sceneTargetTexture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo edgeInfo = {vk_rs.surfaceSampler, vk_rs.smaa.edgeTexture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo areaInfo = {vk_rs.smaa.areaTex.sampler, vk_rs.smaa.areaTex.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo searchInfo = {vk_rs.smaa.searchTex.sampler, vk_rs.smaa.searchTex.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo weightInfo = {vk_rs.surfaceSampler, vk_rs.smaa.weightTexture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+
+    VkWriteDescriptorSet writes[] = {
+            {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, vk_rs.smaa.descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &sceneInfo, NULL, NULL},
+            {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, vk_rs.smaa.descriptorSet, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &edgeInfo, NULL, NULL},
+            {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, vk_rs.smaa.descriptorSet, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &areaInfo, NULL, NULL},
+            {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, vk_rs.smaa.descriptorSet, 3, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &searchInfo, NULL, NULL},
+            {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, vk_rs.smaa.descriptorSet, 4, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &weightInfo, NULL, NULL},
+    };
+    vkUpdateDescriptorSets(vkinfo.device, 5, writes, 0, NULL);
+}
+
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "ConstantParameter"
-static bool loadTexture(vk_texture_t* texture, asset_info_t* uploadInfo) {
+static bool loadTexture(ktx_texture_t* texture, asset_info_t* uploadInfo) {
     return loadKtx(uploadInfo, texture);
 }
 #pragma clang diagnostic pop
@@ -808,6 +1070,7 @@ bool initRenderer(AAssetManager *assetManager) {
         vkCreateFence(vkinfo.device, &fenceInfo, NULL, &vk_rs.renderFences[i]);
     }
 
+    initSMAA(assetManager);
     model_load(&(asset_info_t){.path = "scene.glb", .assetManager = assetManager}, &vk_rs.worldModelGltf);
 
     LOGI("Renderer initialized successfully (Vulkan)");
@@ -871,13 +1134,16 @@ void renderFrame(frame_begin_end_state_t *state) {
 
     XrExtent2Di rect = state->frame.outputRect.extent;
     ensureRenderResources((VkExtent2D){(uint32_t)rect.width, (uint32_t)rect.height});
+    ensureSMAAResources((VkExtent2D){(uint32_t)rect.width, (uint32_t)rect.height});
 
     uint32_t imgIndex = state->frame.imageIndex;
     VkFramebuffer currentFb = vk_rs.framebuffers[imgIndex];
 
-    vkResetCommandBuffer(vk_rs.cmdBuffers[imgIndex], 0);
+    VkCommandBuffer cmd = vk_rs.cmdBuffers[imgIndex];
+
+    vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    vkBeginCommandBuffer(vk_rs.cmdBuffers[imgIndex], &beginInfo);
+    vkBeginCommandBuffer(cmd, &beginInfo);
 
     VkClearValue clearValues[2] = {
             {.color = {{0.1f, 0.1f, 0.1f, 1.0f}}},
@@ -886,19 +1152,19 @@ void renderFrame(frame_begin_end_state_t *state) {
 
     VkRenderPassBeginInfo rpInfo = {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass = vk_rs.renderPass,
-            .framebuffer = currentFb,
+            .renderPass = vk_rs.smaa.offscreenPass,
+            .framebuffer = vk_rs.smaa.offscreenFramebuffer,
             .renderArea.extent = {rect.width, rect.height},
             .clearValueCount = 2,
             .pClearValues = clearValues
     };
 
-    vkCmdBeginRenderPass(vk_rs.cmdBuffers[imgIndex], &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport = {0, 0, (float)rect.width, (float)rect.height, 0.0f, 1.0f};
-    vkCmdSetViewport(vk_rs.cmdBuffers[imgIndex], 0, 1, &viewport);
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
     VkRect2D scissor = {{0,0}, {rect.width, rect.height}};
-    vkCmdSetScissor(vk_rs.cmdBuffers[imgIndex], 0, 1, &scissor);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     VkDeviceSize offsets[] = {0};
 
@@ -907,35 +1173,86 @@ void renderFrame(frame_begin_end_state_t *state) {
             vk_rs.descriptorSets[state->frame.imageIndex * 2 + 1],
     };
 
-
     // World
-    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.gltfPipeline);
-    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS,
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.gltfPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             vk_rs.gltfPipelineLayout, 0, 1,
                             &vk_rs.descriptorSets[imgIndex * 2], 0, NULL);
-    model_draw(vk_rs.cmdBuffers[imgIndex], imgIndex, &vk_rs.worldModelGltf);
+    model_draw(cmd, imgIndex, &vk_rs.worldModelGltf);
 
-    vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.pipelineLayout, 0, 2, sets, 0, NULL);
 
     // Screen
-    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.targetRectModel.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], 6, 1, 0, 0);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.blitPipeline);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vk_rs.targetRectModel.buffer, offsets);
+    vkCmdDraw(cmd, 6, 1, 0, 0);
 
     // Rays
-    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.linePipeline);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.leftRay.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.leftRay.vertexCount, 1, 0, 0);
-    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.rightRay.buffer, offsets);
-    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.rightRay.vertexCount, 1, 0, 0);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.linePipeline);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vk_rs.leftRay.buffer, offsets);
+    vkCmdDraw(cmd, vk_rs.leftRay.vertexCount, 1, 0, 0);
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vk_rs.rightRay.buffer, offsets);
+    vkCmdDraw(cmd, vk_rs.rightRay.vertexCount, 1, 0, 0);
 
-    vkCmdEndRenderPass(vk_rs.cmdBuffers[imgIndex]);
-    vkEndCommandBuffer(vk_rs.cmdBuffers[imgIndex]);
+    vkCmdEndRenderPass(cmd);
+
+    float width = (float)state->frame.outputRect.extent.width;
+    float height = (float)state->frame.outputRect.extent.height;
+    float metrics[4] = {1.0f / width, 1.0f / height, width, height};
+
+    // SMAA edges
+    VkClearValue smaaClear = {.color = {{0.0f, 0.0f, 0.0f, 0.0f}}};
+    VkRenderPassBeginInfo edgeRp = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = vk_rs.smaa.edgePass,
+            .framebuffer = vk_rs.smaa.edgeFramebuffer,
+            .renderArea.extent = {rect.width, rect.height},
+            .clearValueCount = 1, .pClearValues = &smaaClear
+    };
+    vkCmdBeginRenderPass(cmd, &edgeRp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.edgePipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.pipelineLayout, 0, 1, &vk_rs.smaa.descriptorSet, 0, NULL);
+    vkCmdPushConstants(cmd, vk_rs.smaa.pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(metrics), metrics);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
+
+    // SMAA weights
+    VkRenderPassBeginInfo weightRp = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = vk_rs.smaa.weightPass,
+            .framebuffer = vk_rs.smaa.weightFramebuffer,
+            .renderArea.extent = {rect.width, rect.height},
+            .clearValueCount = 1, .pClearValues = &smaaClear
+    };
+    vkCmdBeginRenderPass(cmd, &weightRp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.weightPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.pipelineLayout, 0, 1, &vk_rs.smaa.descriptorSet, 0, NULL);
+    vkCmdPushConstants(cmd, vk_rs.smaa.pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(metrics), metrics);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
+
+    // SMAA neighborhood blending (final)
+    VkRenderPassBeginInfo finalRp = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = vk_rs.renderPass,
+            .framebuffer = vk_rs.framebuffers[imgIndex],
+            .renderArea.extent = {rect.width, rect.height},
+            .clearValueCount = 2,
+            .pClearValues = clearValues
+    };
+    vkCmdBeginRenderPass(cmd, &finalRp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.blendPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.smaa.pipelineLayout, 0, 1, &vk_rs.smaa.descriptorSet, 0, NULL);
+    vkCmdPushConstants(cmd, vk_rs.smaa.pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(metrics), metrics);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
+
+    vkEndCommandBuffer(cmd);
 
     VkSubmitInfo submitInfo = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .commandBufferCount = 1,
-            .pCommandBuffers = &vk_rs.cmdBuffers[imgIndex]
+            .pCommandBuffers = &cmd
     };
     vkQueueSubmit(vkinfo.graphicsQueue, 1, &submitInfo, vk_rs.renderFences[imgIndex]);
 }
@@ -947,7 +1264,7 @@ static void destroyVkModel(vk_model_t* model) {
     }
 }
 
-static void destroyVkTexture(vk_texture_t* tex) {
+static void destroyKtxTexture(ktx_texture_t* tex) {
     if (tex->view) vkDestroyImageView(vkinfo.device, tex->view, NULL);
     if (tex->image) vmaDestroyImage(vkinfo.allocator, tex->image, tex->allocation);
     if (tex->sampler) vkDestroySampler(vkinfo.device, tex->sampler, NULL);

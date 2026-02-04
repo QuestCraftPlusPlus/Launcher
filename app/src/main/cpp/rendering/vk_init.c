@@ -200,10 +200,18 @@ bool initVulkan(XrInstance xrInstance, XrSystemId systemId) {
             .multiview = VK_TRUE,
     };
 
+    VkPhysicalDeviceFeatures2 features = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .features = {
+                    .samplerAnisotropy = true
+            },
+            .pNext = &features11,
+    };
+
     VkDeviceCreateInfo vkDeviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     vkDeviceInfo.pQueueCreateInfos = &queueCreateInfo;
     vkDeviceInfo.queueCreateInfoCount = 1;
-    vkDeviceInfo.pNext = &features11;
+    vkDeviceInfo.pNext = &features;
 
     XrVulkanDeviceCreateInfoKHR xrVkDeviceInfo = {XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
     xrVkDeviceInfo.systemId = systemId;

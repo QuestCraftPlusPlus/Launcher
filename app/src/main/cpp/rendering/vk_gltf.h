@@ -25,15 +25,15 @@ typedef struct {
 } gltf_mesh_t;
 
 typedef struct {
-    VkDescriptorSet* descriptor_sets;
-} gltf_material_t;
-
-typedef struct {
     VkImage image;
     VkImageView view;
     VmaAllocation allocation;
     VkSampler sampler;
-} gltf_texture_t;
+} vk_texture_t;
+
+typedef struct {
+    VkDescriptorSet* descriptor_sets;
+} gltf_material_t;
 
 typedef struct {
     gltf_mesh_t* meshes;
@@ -43,7 +43,7 @@ typedef struct {
     gltf_material_t* materials;
     uint32_t material_count;
 
-    gltf_texture_t* textures;
+    vk_texture_t* textures;
     uint32_t texture_count;
 } gltf_model_t;
 

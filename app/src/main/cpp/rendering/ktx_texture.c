@@ -91,7 +91,7 @@ static ktxVulkanTexture_subAllocatorCallbacks callbacks = {
         .freeMemFuncPtr = KtxVmaFreeMemory
 };
 
-bool loadKtx(asset_info_t* uploadInfo, vk_texture_t* outTexture) {
+bool loadKtxEx(asset_info_t* uploadInfo, ktx_texture_t* outTexture, VkSamplerCreateInfo samplerInfo) {
     off64_t size;
     void* buffer = readAssetToBuffer(uploadInfo, &size);
     if(buffer == NULL) {
@@ -174,17 +174,7 @@ bool loadKtx(asset_info_t* uploadInfo, vk_texture_t* outTexture) {
         return false;
     }
 
-    VkSamplerCreateInfo samplerInfo = {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_NEAREST,
-            .minFilter = VK_FILTER_NEAREST,
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .maxAnisotropy = 16.0f,
-            .maxLod = (float)outTexture->mipLevels,
-    };
+    samplerInfo.maxLod = (float)outTexture->mipLevels;
 
     if (vkCreateSampler(vkinfo.device, &samplerInfo, NULL, &outTexture->sampler) != VK_SUCCESS) {
         LOGE("Failed to create image view for KTX texture");
@@ -203,4 +193,17 @@ bool loadKtx(asset_info_t* uploadInfo, vk_texture_t* outTexture) {
     LOGI("Created a KTX texture from %s successfully with image: %p, view %p, sampler %p", uploadInfo->path, outTexture->image, outTexture->view, outTexture->sampler);
 
     return true;
+}
+
+bool loadKtx(asset_info_t* uploadInfo, ktx_texture_t* outTexture) {
+    return loadKtxEx(uploadInfo, outTexture, (VkSamplerCreateInfo){
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_NEAREST,
+            .minFilter = VK_FILTER_NEAREST,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .maxAnisotropy = 16.0f,
+    });
 }

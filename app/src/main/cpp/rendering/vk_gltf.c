@@ -16,8 +16,8 @@
 #include "../xr/xr_init.h"
 #include "ktx_texture.h"
 
-vk_texture_t* missing;
-gltf_texture_t* missing_mirror;
+ktx_texture_t* missing;
+vk_texture_t* missing_mirror;
 
 bool mesh_load(cgltf_data* data, cgltf_mesh* mesh, gltf_mesh_t* out) {
     cgltf_primitive* prim = &mesh->primitives[0];
@@ -84,7 +84,7 @@ static inline VkSamplerAddressMode cgltf_wrap_to_vulkan(cgltf_wrap_mode wrap) {
     }
 }
 
-bool texture_load(cgltf_texture* texture, gltf_texture_t* out) {
+bool texture_load(cgltf_texture* texture, vk_texture_t* out) {
     uint8_t* pixel_data = NULL;
     int width, height, channels;
     size_t data_size = 0;
@@ -103,13 +103,15 @@ bool texture_load(cgltf_texture* texture, gltf_texture_t* out) {
         return false;
     }
 
+    uint32_t mip_levels = (uint32_t)floor(log2(width > height ? width : height)) + 1;
+
     VkDeviceSize image_size = width * height * 4;
     VkImageCreateInfo image_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = VK_IMAGE_TYPE_2D,
             .format = VK_FORMAT_R8G8B8A8_SRGB, // Albedo should be sRGB
             .extent = {width, height, 1},
-            .mipLevels = 1,
+            .mipLevels = mip_levels,
             .arrayLayers = 1,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -186,13 +188,58 @@ bool texture_load(cgltf_texture* texture, gltf_texture_t* out) {
 
     vkCmdCopyBufferToImage(cmd, stagingBuffer, out->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VkImageMemoryBarrier barrier1 = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .image = out->image,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1} // Only level 0
+    };
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         0, 0, NULL, 0, NULL, 1, &barrier);
+    barrier1.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier1.srcAccessMask = 0;
+    barrier1.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+    vkCmdCopyBufferToImage(cmd, stagingBuffer, out->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    int32_t mipWidth = width;
+    int32_t mipHeight = height;
+
+    for (uint32_t i = 1; i < mip_levels; i++) {
+        barrier1.subresourceRange.baseMipLevel = i - 1;
+        barrier1.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier1.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier1.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+        VkImageBlit blit = {
+                .srcOffsets[1] = {mipWidth, mipHeight, 1},
+                .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 0, 1},
+                .dstOffsets[1] = { mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 },
+                .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i, 0, 1}
+        };
+
+        vkCmdBlitImage(cmd, out->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, out->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+
+        barrier1.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier1.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier1.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier1.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+        if (mipWidth > 1) mipWidth /= 2;
+        if (mipHeight > 1) mipHeight /= 2;
+    }
+
+    barrier1.subresourceRange.baseMipLevel = mip_levels - 1;
+    barrier1.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier1.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier1.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier1.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
     vkEndCommandBuffer(cmd);
     VkSubmitInfo submitInfo = {
@@ -211,7 +258,7 @@ bool texture_load(cgltf_texture* texture, gltf_texture_t* out) {
             .image = out->image,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .format = VK_FORMAT_R8G8B8A8_SRGB,
-            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels, 0, 1}
     };
     vkCreateImageView(vkinfo.device, &view_info, NULL, &out->view);
 
@@ -221,7 +268,12 @@ bool texture_load(cgltf_texture* texture, gltf_texture_t* out) {
             .minFilter = cgltf_filter_to_vulkan(texture->sampler->min_filter),
             .addressModeU = cgltf_wrap_to_vulkan(texture->sampler->wrap_s),
             .addressModeV = cgltf_wrap_to_vulkan(texture->sampler->wrap_t),
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR // so the thing about this is that gltf encodes this the same way gl does which is in the mag and min filters but it doesn't make sense to
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR, // so the thing about this is that gltf encodes this the same way gl does which is in the mag and min filters but it doesn't make sense to
+            .anisotropyEnable = false, // anisotropic filtering forces nearest filters :(
+            .maxAnisotropy = 1.0f,
+            .minLod = 0.0f,
+            .maxLod = (float)mip_levels,
+//            .mipLodBias = -0.5f
     };
     vkCreateSampler(vkinfo.device, &sampler_info, NULL, &out->sampler);
 
@@ -239,8 +291,8 @@ bool material_load(cgltf_data* data, cgltf_material* material, gltf_material_t* 
     int base_color_index = mat.base_color_texture.texture - data->textures;
     int metallic_roughness_index = mat.metallic_roughness_texture.texture - data->textures;
 
-    gltf_texture_t base_color = mat.base_color_texture.texture ? model->textures[base_color_index] : *missing_mirror;
-    gltf_texture_t metallic = mat.metallic_roughness_texture.texture ? model->textures[metallic_roughness_index] : *missing_mirror;
+    vk_texture_t base_color = mat.base_color_texture.texture ? model->textures[base_color_index] : *missing_mirror;
+    vk_texture_t metallic = mat.metallic_roughness_texture.texture ? model->textures[metallic_roughness_index] : *missing_mirror;
 
     uint32_t totalSets = xrinfo.renderTarget.swapchainImageCount * 2;
 
@@ -340,12 +392,12 @@ void model_free(gltf_model_t* model) {
 
 bool model_load(asset_info_t* uploadInfo, gltf_model_t* out) {
     if (!missing) {
-        missing = malloc(sizeof(vk_texture_t));
+        missing = malloc(sizeof(ktx_texture_t));
         loadKtx(&(asset_info_t){
                 .path = "null.ktx",
                 .assetManager = uploadInfo->assetManager
         }, missing);
-        missing_mirror = malloc(sizeof(gltf_texture_t));
+        missing_mirror = malloc(sizeof(vk_texture_t));
         missing_mirror->image = missing->image;
         missing_mirror->view = missing->view;
         missing_mirror->sampler = missing->sampler;
@@ -398,7 +450,7 @@ bool model_load(asset_info_t* uploadInfo, gltf_model_t* out) {
     out->meshes = malloc(sizeof(gltf_mesh_t) * out->mesh_count);
 
     out->texture_count = data->textures_count;
-    out->textures = malloc(sizeof(gltf_texture_t) * out->texture_count);
+    out->textures = malloc(sizeof(vk_texture_t) * out->texture_count);
 
     out->material_count = data->materials_count;
     out->materials = malloc(sizeof(gltf_material_t) * out->material_count);

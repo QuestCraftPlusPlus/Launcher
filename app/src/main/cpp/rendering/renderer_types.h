@@ -35,13 +35,40 @@ typedef struct {
     uint32_t mipLevels;
     uint32_t arrayLayers;
     VkSampler sampler;
-} vk_texture_t;
+} ktx_texture_t;
 
 typedef struct {
     VkImage image;
     VmaAllocation allocation;
     VkImageView imageView;
 } native_surface_texture_t;
+
+typedef struct {
+    ktx_texture_t areaTex;
+    ktx_texture_t searchTex;
+
+    vk_texture_t sceneTargetTexture;
+    vk_texture_t edgeTexture; // R8G8
+    vk_texture_t weightTexture; // R8G8B8A8
+
+    VkRenderPass offscreenPass; // replaces old main
+    VkRenderPass edgePass;
+    VkRenderPass weightPass;
+    // final pass writes to swapchain
+
+    VkPipeline edgePipeline;
+    VkPipeline weightPipeline;
+    VkPipeline blendPipeline;
+
+    VkPipelineLayout pipelineLayout;
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSet descriptorSet;
+
+    VkFramebuffer offscreenFramebuffer;
+    VkFramebuffer edgeFramebuffer;
+    VkFramebuffer weightFramebuffer;
+} smaa_t;
 
 typedef struct {
     VkPipelineLayout pipelineLayout;
@@ -81,6 +108,8 @@ typedef struct {
     VkBuffer uniformBuffer;
     VmaAllocation uniformAlloc;
     void* uniformMappedData;
+
+    smaa_t smaa;
 
     VkCommandBuffer* cmdBuffers;
     VkFence* renderFences;
