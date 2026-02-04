@@ -293,34 +293,49 @@ bool material_load(cgltf_data* data, cgltf_material* material, gltf_material_t* 
         vkUpdateDescriptorSets(vkinfo.device, 3, writes, 0, NULL);
     }
 
+    free(layouts);
     return true;
 }
 
 void model_free(gltf_model_t* model) {
     if (!model) return;
 
-    for (uint32_t i = 0; i < model->mesh_count; i++) {
-        vmaDestroyBuffer(vkinfo.allocator, model->meshes[i].vertices.buffer, model->meshes[i].vertices.allocation);
-        vmaDestroyBuffer(vkinfo.allocator, model->meshes[i].indices.buffer, model->meshes[i].indices.allocation);
+    if (model->meshes) {
+        for (uint32_t i = 0; i < model->mesh_count; i++) {
+            vmaDestroyBuffer(vkinfo.allocator, model->meshes[i].vertices.buffer,
+                             model->meshes[i].vertices.allocation);
+            vmaDestroyBuffer(vkinfo.allocator, model->meshes[i].indices.buffer,
+                             model->meshes[i].indices.allocation);
+        }
+        free(model->meshes);
     }
-    free(model->meshes);
 
-    for (uint32_t i = 0; i < model->texture_count; i++) {
-        vkDestroySampler(vkinfo.device, model->textures[i].sampler, NULL);
-        vkDestroyImageView(vkinfo.device, model->textures[i].view, NULL);
-        vmaDestroyImage(vkinfo.allocator, model->textures[i].image, model->textures[i].allocation);
+    if (model->textures) {
+        for (uint32_t i = 0; i < model->texture_count; i++) {
+            vkDestroySampler(vkinfo.device, model->textures[i].sampler, NULL);
+            vkDestroyImageView(vkinfo.device, model->textures[i].view, NULL);
+            vmaDestroyImage(vkinfo.allocator, model->textures[i].image,
+                            model->textures[i].allocation);
+        }
+        free(model->textures);
     }
-    free(model->textures);
+
+    if (model->materials) {
+        for (uint32_t i = 0; i < model->material_count; i++) {
+            if (model->materials[i].descriptor_sets) {
+                free(model->materials[i].descriptor_sets);
+            }
+        }
+        free(model->materials);
+    }
 
     if (model->descriptor_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(vkinfo.device, model->descriptor_pool, NULL);
     }
-    if (model->materials) {
-        free(model->materials);
-    }
 
     model->mesh_count = 0;
     model->texture_count = 0;
+    model->material_count = 0;
 }
 
 bool model_load(asset_info_t* uploadInfo, gltf_model_t* out) {

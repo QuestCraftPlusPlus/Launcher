@@ -321,16 +321,6 @@ static void createPipelines(AAssetManager* am, VkRenderPass renderPass) {
                                               gltfBinding, gltfAttribs, 3,
                                               VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
 
-    VkVertexInputBindingDescription worldBinding = {0, 8 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription worldAttribs[] = {
-            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},               // Position (Offset 0)
-            {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 3 * sizeof(float)} // Tex Light (Offset 12)
-    };
-    vk_rs.worldPipeline = createPipelineHelper(am, "lightmap.vert.spv", "lightmap.frag.spv",
-                                                        vk_rs.pipelineLayout,
-                                                        worldBinding, worldAttribs, 2,
-                                                        VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, VK_CULL_MODE_BACK_BIT, renderPass);
-
     VkVertexInputBindingDescription lineBinding = {0, 6 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription lineAttribs[] = {
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},               // Position (Offset 0)
@@ -551,26 +541,22 @@ static void createDescriptorPools() {
 
         VkDescriptorBufferInfo bufferInfo = {vk_rs.uniformBuffer, 0, sizeof(UboViewData) };
 
-        VkDescriptorImageInfo imageInfos[3] = {
-                { .sampler = vk_rs.atlas.sampler, .imageView = vk_rs.atlas.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-                { .sampler = vk_rs.light.sampler, .imageView = vk_rs.light.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+        VkDescriptorImageInfo imageInfos[1] = {
                 { .sampler = vk_rs.surfaceSampler, .imageView = vk_rs.surfaceTextures[i].imageView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }
         };
 
-        VkWriteDescriptorSet writes[4];
+        VkWriteDescriptorSet writes[2];
         writes[0] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set0, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .pBufferInfo = &bufferInfo };
-        writes[1] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[0] };
-        writes[2] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set1, .dstBinding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .pImageInfo = &imageInfos[1] };
-        writes[3] = (VkWriteDescriptorSet){
+        writes[1] = (VkWriteDescriptorSet){
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .dstSet = set1,
                 .dstBinding = 2,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = 1,
-                .pImageInfo = &imageInfos[2]
+                .pImageInfo = &imageInfos[0]
         };
 
-        vkUpdateDescriptorSets(vkinfo.device, 4, writes, 0, NULL);
+        vkUpdateDescriptorSets(vkinfo.device, 2, writes, 0, NULL);
     }
 }
 
@@ -787,13 +773,6 @@ static bool loadTexture(vk_texture_t* texture, asset_info_t* uploadInfo) {
 }
 #pragma clang diagnostic pop
 
-static bool loadTextures(AAssetManager* assetManager) {
-    asset_info_t atexUploadInfo = {assetManager, "atlas_texture.ktx"};
-    asset_info_t ltexUploadInfo = {assetManager, "light_texture.ktx"};
-    return loadTexture(&vk_rs.atlas, &atexUploadInfo) &&
-           loadTexture(&vk_rs.light, &ltexUploadInfo);
-}
-
 bool initRenderer(AAssetManager *assetManager) {
     if (!vkinfo.initialized) {
         LOGE("Vulkan must be initialized before Renderer");
@@ -802,12 +781,9 @@ bool initRenderer(AAssetManager *assetManager) {
 
     createSurface();
 
-    loadTextures(assetManager);
-
     createBuffer(sizeof(UboViewData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, &vk_rs.uniformBuffer, &vk_rs.uniformAlloc);
     vmaMapMemory(vkinfo.allocator, vk_rs.uniformAlloc, &vk_rs.uniformMappedData);
 
-    loadAssetModel(&vk_rs.worldModel, "simplemodel.x", assetManager);
     loadAssetModel(&vk_rs.targetRectModel, "tv.x", assetManager);
     createVkModel(&vk_rs.leftRay, NULL, 12 * sizeof(float), true);
     createVkModel(&vk_rs.rightRay, NULL, 12 * sizeof(float), true);
@@ -933,10 +909,6 @@ void renderFrame(frame_begin_end_state_t *state) {
 
 
     // World
-//    vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.worldPipeline);
-//    vkCmdBindVertexBuffers(vk_rs.cmdBuffers[imgIndex], 0, 1, &vk_rs.worldModel.buffer, offsets);
-//    vkCmdDraw(vk_rs.cmdBuffers[imgIndex], vk_rs.worldModel.vertexCount, 1, 0, 0);
-
     vkCmdBindPipeline(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, vk_rs.gltfPipeline);
     vkCmdBindDescriptorSets(vk_rs.cmdBuffers[imgIndex], VK_PIPELINE_BIND_POINT_GRAPHICS,
                             vk_rs.gltfPipelineLayout, 0, 1,
@@ -997,7 +969,6 @@ void cleanupRenderer() {
         free(vk_rs.cmdBuffers);
     }
 
-    vkDestroyPipeline(vkinfo.device, vk_rs.worldPipeline, NULL);
     vkDestroyPipeline(vkinfo.device, vk_rs.linePipeline, NULL);
     vkDestroyPipeline(vkinfo.device, vk_rs.blitPipeline, NULL);
     vkDestroyPipelineLayout(vkinfo.device, vk_rs.pipelineLayout, NULL);
@@ -1009,13 +980,11 @@ void cleanupRenderer() {
     vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set0Layout, NULL);
     vkDestroyDescriptorSetLayout(vkinfo.device, vk_rs.set1Layout, NULL);
 
-    destroyVkModel(&vk_rs.worldModel);
     destroyVkModel(&vk_rs.targetRectModel);
     destroyVkModel(&vk_rs.leftRay);
     destroyVkModel(&vk_rs.rightRay);
 
-    destroyVkTexture(&vk_rs.atlas);
-    destroyVkTexture(&vk_rs.light);
+    model_free(&vk_rs.worldModelGltf);
 
     if (vk_rs.surfaceSampler) {
         vkDestroySampler(vkinfo.device, vk_rs.surfaceSampler, NULL);

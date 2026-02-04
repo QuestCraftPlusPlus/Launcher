@@ -45,7 +45,6 @@ typedef struct {
 
 typedef struct {
     VkPipelineLayout pipelineLayout;
-    VkPipeline worldPipeline;
     VkPipeline linePipeline;
     VkPipeline blitPipeline;
 
@@ -59,15 +58,11 @@ typedef struct {
     uint32_t framebufferCount;
     VkImageView* swapchainImageViews;
 
-    vk_model_t worldModel;
     vk_model_t targetRectModel;
     vk_model_t leftRay;
     vk_model_t rightRay;
 
     gltf_model_t worldModelGltf;
-
-    vk_texture_t atlas;
-    vk_texture_t light;
 
     AImageReader* surfaceReader;
     native_surface_texture_t* surfaceTextures;

@@ -49,5 +49,6 @@ typedef struct {
 
 bool model_load(asset_info_t* uploadInfo, gltf_model_t* out);
 void model_draw(VkCommandBuffer cmdBuffer, uint32_t imageIndex, gltf_model_t* model);
+void model_free(gltf_model_t* model);
 
 #endif //QCXR_VK_GLTF_H
