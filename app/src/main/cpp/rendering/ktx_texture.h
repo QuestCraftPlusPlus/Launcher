@@ -12,6 +12,7 @@
 #include <android/asset_manager.h>
 #include <stdbool.h>
 
-bool loadKtx(asset_info_t *uploadInfo, vk_texture_t *outTexture);
+bool loadKtxEx(asset_info_t *uploadInfo, ktx_texture_t *outTexture, VkSamplerCreateInfo samplerInfo);
+bool loadKtx(asset_info_t *uploadInfo, ktx_texture_t *outTexture);
 
 #endif //QCXR_KTX_TEXTURE_H

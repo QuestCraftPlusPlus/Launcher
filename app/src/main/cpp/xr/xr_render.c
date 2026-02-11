@@ -107,10 +107,10 @@ bool beginFrame(frame_begin_end_state_t* state) {
 }
 
 void endFrame(frame_begin_end_state_t* state) {
+    vkQueueWaitIdle(vkinfo.graphicsQueue);
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(xrinfo.renderTarget.swapchain, &releaseInfo);
     state->frameEndInfo.displayTime = state->displayTime;
-    vkQueueWaitIdle(vkinfo.graphicsQueue);
     XrResult result = xrEndFrame(xrinfo.session, &state->frameEndInfo);
     if (result != XR_SUCCESS) {
         char buffer[XR_MAX_RESULT_STRING_SIZE];
