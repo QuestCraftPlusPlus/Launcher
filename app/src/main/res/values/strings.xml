@@ -1,4 +1,20 @@
 <resources>
     <string name="app_name">QuestCraft</string>
     <string name="title_activity_main">MainActivity</string>
+    <string name="instances">INSTANCES</string>
+    <string name="quest">QUEST</string>
+    <string name="mods">MODS</string>
+    <string name="packs">PACKS</string>
+    <string name="servers">SERVERS</string>
+    <string name="accounts">ACCOUNTS</string>
+    <string name="settings">SETTINGS</string>
+    <string name="quit">QUIT</string>
+    <string name="add_instance">ADD INSTANCE</string>
+    <string name="filter_instances">Filter instances...</string>
+    <string name="selected_instance">SELECTED INSTANCE</string>
+    <string name="version">VERSION</string>
+    <string name="loader">LOADER</string>
+    <string name="launch">LAUNCH</string>
+    <string name="view_console">VIEW CONSOLE</string>
+    <string name="stable">STABLE</string>
 </resources>

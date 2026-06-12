@@ -1,27 +1,27 @@
 package com.qcxr.questcraft;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.Surface;
+import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+
+import com.qcxr.questcraft.ui.UIActivity;
 
 import java.lang.ref.WeakReference;
 
-public class MainActivity extends Activity {
+import androidx.activity.ComponentActivity;
+
+public class MainActivity extends ComponentActivity {
     private static Handler uiThreadHandler;
     public static WeakReference<MainActivity> weakMe;
+
+    public static View questLauncherView;
     private NativeSurface nativeSurface;
-    @SuppressLint("StaticFieldLeak")
-    public static WebView webView;
 
     static {
         System.loadLibrary("qcxr");
@@ -65,22 +65,11 @@ public class MainActivity extends Activity {
 
         me.runOnUiThread(() -> {
             me.nativeSurface = new NativeSurface(me);
+            questLauncherView = UIActivity.createView(me);
 
             me.nativeSurface.setSurface(surface);
 
-            webView = new WebView(me);
-            me.nativeSurface.setChildView(webView);
-
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    return false;
-                }
-            });
-
-            WebSettings settings = webView.getSettings();
-            settings.setJavaScriptEnabled(true);
-            webView.loadUrl("https://youtu.be/PomiV1iyTp8?t=54");
+            me.nativeSurface.setChildView(questLauncherView);
 
             me.setContentView(me.nativeSurface, new ViewGroup.LayoutParams(w, h));
         });
