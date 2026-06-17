@@ -30,17 +30,18 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
     ) {
         Column {
             Text(text = stringResource(R.string.selected_instance).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(text = selectedInstance?.name ?: "NONE", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text(text = selectedInstance?.jLibInstance?.instanceName ?: "NONE", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
         Spacer(modifier = Modifier.width(32.dp))
         Column {
             Text(text = stringResource(R.string.version).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(text = selectedInstance?.version ?: "-", color = TextPrimary, fontSize = 22.sp)
+            Text(text = selectedInstance?.jLibInstance?.versionName ?: "-", color = TextPrimary, fontSize = 22.sp)
         }
         Spacer(modifier = Modifier.width(32.dp))
         Column {
             Text(text = stringResource(R.string.loader).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(text = selectedInstance?.loader ?: "-", color = TextPrimary, fontSize = 22.sp)
+            // TODO: Update to loaderName
+            Text(text = selectedInstance?.jLibInstance?.versionType ?: "-", color = TextPrimary, fontSize = 22.sp)
         }
         
         Spacer(modifier = Modifier.weight(1f))

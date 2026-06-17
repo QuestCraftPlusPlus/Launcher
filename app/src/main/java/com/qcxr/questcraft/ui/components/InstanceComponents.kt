@@ -17,8 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcxr.questcraft.ui.theme.*
+import org.angelauramc.judgelib.instance.JudgeLibInstance
 
-data class Instance(val name: String, val version: String, val loader: String, val color: Color)
+data class Instance(val jLibInstance: JudgeLibInstance, val color: Color)
 
 @Composable
 fun InstanceGrid(
@@ -74,8 +75,9 @@ fun InstanceCard(instance: Instance, isSelected: Boolean, onClick: () -> Unit) {
                 Box(modifier = Modifier.size(30.dp).background(instance.color, RoundedCornerShape(2.dp)))
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Text(text = instance.name, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(text = "${instance.version} • ${instance.loader}", color = AccentGreen, fontSize = 14.sp)
+            Text(text = instance.jLibInstance.instanceName, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            // TODO: Change versionType to loaderName
+            Text(text = "${instance.jLibInstance.versionName} • ${instance.jLibInstance.versionType}", color = AccentGreen, fontSize = 14.sp)
         }
         
         // Menu dots

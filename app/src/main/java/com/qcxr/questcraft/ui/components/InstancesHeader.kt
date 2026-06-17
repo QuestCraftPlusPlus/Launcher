@@ -13,13 +13,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcxr.questcraft.R
+import com.qcxr.questcraft.ui.QuestLauncherScreen
 import com.qcxr.questcraft.ui.theme.*
 
 @Composable
-fun InstancesHeader(modifier: Modifier = Modifier) {
+fun InstancesHeader(
+    onAddInstanceClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -27,7 +32,7 @@ fun InstancesHeader(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Button(
-            onClick = {},
+            onClick = onAddInstanceClick,
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
             shape = RoundedCornerShape(4.dp),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
@@ -65,5 +70,13 @@ fun InstancesHeader(modifier: Modifier = Modifier) {
         Box(modifier = Modifier.size(36.dp).background(SurfaceDark, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
             Box(modifier = Modifier.size(18.dp).background(Color.Gray))
         }
+    }
+}
+
+@Preview(widthDp = 1000)
+@Composable
+fun InstancesHeaderPreview() {
+    QuestCraftTheme {
+        InstancesHeader(onAddInstanceClick = {})
     }
 }

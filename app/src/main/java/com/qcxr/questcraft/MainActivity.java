@@ -10,11 +10,18 @@ import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.microsoft.aad.msal4j.DeviceCode;
+import com.qcxr.questcraft.ui.QuestLauncherScreenKt;
 import com.qcxr.questcraft.ui.UIActivity;
+import com.qcxr.questcraft.utils.Constants;
 
 import java.lang.ref.WeakReference;
 
 import androidx.activity.ComponentActivity;
+
+import org.angelauramc.judgelib.JudgeLibAPI;
+import org.angelauramc.judgelib.impl.InitInfo;
+import org.slf4j.Logger;
 
 public class MainActivity extends ComponentActivity {
     private static Handler uiThreadHandler;
@@ -23,6 +30,8 @@ public class MainActivity extends ComponentActivity {
     public static View questLauncherView;
     private NativeSurface nativeSurface;
 
+    public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
+
     static {
         System.loadLibrary("qcxr");
     }
@@ -30,16 +39,22 @@ public class MainActivity extends ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setDensity();
+        //setDensity();
         uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
-        start(new XRActivityInput(), getAssets());
+        judgeLibAPI.initialize(new InitInfo("d17a73a2-707c-40f5-8c90-d3eda0956f10", "https://login.microsoftonline.com/consumers/", Constants.ROOT_DATA_PATH().toString(), this::printCallback));
+        //start(new XRActivityInput(), getAssets());
+        setContentView(UIActivity.createView(this));
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         stop();
+    }
+
+    private void printCallback(DeviceCode res) {
+        System.out.println(res.message());
     }
 
     private void setDensity() {

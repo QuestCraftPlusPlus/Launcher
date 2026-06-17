@@ -10,6 +10,12 @@
     <string name="settings">SETTINGS</string>
     <string name="quit">QUIT</string>
     <string name="add_instance">ADD INSTANCE</string>
+    <string name="create_instance">CREATE INSTANCE</string>
+    <string name="instance_name">Instance Name</string>
+    <string name="select_version">Select Version</string>
+    <string name="select_loader">Select Loader</string>
+    <string name="cancel">CANCEL</string>
+    <string name="create">CREATE</string>
     <string name="filter_instances">Filter instances...</string>
     <string name="selected_instance">SELECTED INSTANCE</string>
     <string name="version">VERSION</string>
