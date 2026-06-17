@@ -8,7 +8,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -22,23 +21,25 @@ fun TopBrandBar(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "QUESTCRAFT",
             color = AccentGreen,
             fontWeight = FontWeight.Black,
-            fontSize = 24.sp
+            fontSize = 20.sp,
+            letterSpacing = 1.sp
         )
-        Spacer(modifier = Modifier.width(16.dp))
-        Box(modifier = Modifier.size(1.dp, 24.dp).background(DividerColor))
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(24.dp))
+        Box(modifier = Modifier.size(1.dp, 16.dp).background(DividerColor))
+        Spacer(modifier = Modifier.width(24.dp))
         Text(
             text = stringResource(R.string.instances).uppercase(),
             color = TextSecondary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
         )
         Spacer(modifier = Modifier.weight(1f))
 
@@ -46,26 +47,37 @@ fun TopBrandBar(modifier: Modifier = Modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .background(SurfaceDark, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .border(1.dp, DividerColor, RoundedCornerShape(4.dp))
+                .height(40.dp)
+                .background(SurfaceDark, RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp))
+                .padding(horizontal = 12.dp)
         ) {
-            Box(modifier = Modifier.size(12.dp).background(StatusStable, RoundedCornerShape(4.dp)))
+            Box(modifier = Modifier.size(8.dp).background(StatusStable, RoundedCornerShape(1.dp)))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "STABLE", color = TextPrimary, fontSize = 16.sp)
+            Text(text = "STABLE", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
         // Notification Icon Placeholder
-        Box(modifier = Modifier.size(40.dp).background(SurfaceDark, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-            Box(modifier = Modifier.size(22.dp).background(Color.Gray))
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(SurfaceDark, RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(modifier = Modifier.size(20.dp).background(TextSecondary))
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
         // Profile Placeholder
-        Box(modifier = Modifier.size(40.dp).background(AccentGreen, RoundedCornerShape(4.dp)))
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(AccentGreen, RoundedCornerShape(2.dp))
+        )
     }
 }
 

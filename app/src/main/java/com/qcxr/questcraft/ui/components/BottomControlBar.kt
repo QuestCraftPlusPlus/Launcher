@@ -24,52 +24,56 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp)
-            .background(SurfaceDark, RoundedCornerShape(8.dp))
-            .padding(24.dp),
+            .padding(vertical = 16.dp)
+            .background(SurfaceDark, RoundedCornerShape(4.dp))
+            .border(1.dp, DividerColor, RoundedCornerShape(4.dp))
+            .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(text = stringResource(R.string.selected_instance).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(text = selectedInstance?.jLibInstance?.instanceName ?: "NONE", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text(text = stringResource(R.string.selected_instance), color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(text = selectedInstance?.jLibInstance?.instanceName?.uppercase() ?: "NONE", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        }
+        Spacer(modifier = Modifier.width(48.dp))
+        Column {
+            Text(text = stringResource(R.string.version), color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(text = selectedInstance?.jLibInstance?.versionName ?: "-", color = TextSecondary, fontSize = 18.sp)
         }
         Spacer(modifier = Modifier.width(32.dp))
         Column {
-            Text(text = stringResource(R.string.version).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(text = selectedInstance?.jLibInstance?.versionName ?: "-", color = TextPrimary, fontSize = 22.sp)
-        }
-        Spacer(modifier = Modifier.width(32.dp))
-        Column {
-            Text(text = stringResource(R.string.loader).uppercase(), color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            // TODO: Update to loaderName
-            Text(text = selectedInstance?.jLibInstance?.versionType ?: "-", color = TextPrimary, fontSize = 22.sp)
+            Text(text = stringResource(R.string.loader), color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(text = selectedInstance?.jLibInstance?.versionType ?: "-", color = TextSecondary, fontSize = 18.sp)
         }
         
         Spacer(modifier = Modifier.weight(1f))
         
         // Action buttons
         Row {
-            Box(modifier = Modifier.size(56.dp).background(CardBackground, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-                Box(modifier = Modifier.size(24.dp).background(Color.Gray)) // Pencil icon
+            Box(modifier = Modifier.size(48.dp).background(CardBackground, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+                // Pencil icon
+                Box(modifier = Modifier.size(16.dp).background(TextSecondary))
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Box(modifier = Modifier.size(56.dp).background(CardBackground, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-                Box(modifier = Modifier.size(24.dp).background(Color.Gray)) // Trash icon
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(modifier = Modifier.size(48.dp).background(CardBackground, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+                // Trash icon
+                Box(modifier = Modifier.size(16.dp).background(TextSecondary))
             }
         }
         
-        Spacer(modifier = Modifier.width(24.dp))
+        Spacer(modifier = Modifier.width(16.dp))
         
         Button(
             onClick = {},
-            modifier = Modifier.height(52.dp).width(160.dp),
+            modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-            shape = RoundedCornerShape(4.dp)
+            shape = RoundedCornerShape(4.dp),
+            contentPadding = PaddingValues(0.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(16.dp).background(Color.White)) // Play icon
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = stringResource(R.string.launch).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                // Play icon
+                Box(modifier = Modifier.size(12.dp).background(Color.White))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(text = stringResource(R.string.launch), color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
         }
     }

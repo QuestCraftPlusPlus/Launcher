@@ -26,21 +26,35 @@ fun SideBar(
 ) {
     Column(
         modifier = modifier
-            .width(120.dp)
+            .width(80.dp)
             .fillMaxHeight()
             .background(SurfaceDark)
-            .padding(vertical = 16.dp),
+            .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        SideBarItem(stringResource(R.string.quest), isSelected = selectedItem == stringResource(R.string.quest), onClick = { onItemClick(it) })
-        Spacer(modifier = Modifier.height(24.dp))
+        // Logo / Home
+        Box(
+            modifier = Modifier
+                .padding(bottom = 16.dp)
+                .size(56.dp)
+                .background(AccentGreen.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .padding(8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(modifier = Modifier.size(32.dp).background(AccentGreen, RoundedCornerShape(2.dp)))
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
         SideBarItem(stringResource(R.string.instances), isSelected = selectedItem == stringResource(R.string.instances), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.mods), isSelected = selectedItem == stringResource(R.string.mods), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.packs), isSelected = selectedItem == stringResource(R.string.packs), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.servers), isSelected = selectedItem == stringResource(R.string.servers), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.accounts), isSelected = selectedItem == stringResource(R.string.accounts), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.settings), isSelected = selectedItem == stringResource(R.string.settings), onClick = { onItemClick(it) })
+        
         Spacer(modifier = Modifier.weight(1f))
+        
         SideBarItem(stringResource(R.string.quit), isSelected = selectedItem == stringResource(R.string.quit), onClick = { onItemClick(it) })
     }
 }
@@ -51,12 +65,12 @@ fun SideBarItem(label: String, isSelected: Boolean = false, onClick: (String) ->
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick(label) }
-            .padding(vertical = 8.dp),
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .border(
                     width = if (isSelected) 2.dp else 0.dp,
                     color = if (isSelected) AccentGreen else Color.Transparent,
@@ -68,14 +82,14 @@ fun SideBarItem(label: String, isSelected: Boolean = false, onClick: (String) ->
             // Icon Placeholder
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .background(if (isSelected) AccentGreen else Color.Gray, RoundedCornerShape(2.dp))
+                    .size(24.dp)
+                    .background(if (isSelected) AccentGreen else TextSecondary, RoundedCornerShape(2.dp))
             )
         }
         Text(
             text = label,
             color = if (isSelected) AccentGreen else TextSecondary,
-            fontSize = 14.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 4.dp)
         )

@@ -28,24 +28,34 @@ fun InstancesHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Button(
             onClick = onAddInstanceClick,
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-            shape = RoundedCornerShape(4.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            shape = RoundedCornerShape(2.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.height(40.dp)
         ) {
-            Text(text = "+ " + stringResource(R.string.add_instance), color = Color.White, fontWeight = FontWeight.Bold)
+            Text(text = "+ " + stringResource(R.string.add_instance), color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
         }
         
         Spacer(modifier = Modifier.width(16.dp))
         
         // View Toggles
-        Row(modifier = Modifier.background(SurfaceDark, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp))) {
-            Box(modifier = Modifier.padding(8.dp).size(20.dp).background(AccentGreen, RoundedCornerShape(2.dp)))
-            Box(modifier = Modifier.padding(8.dp).size(20.dp).background(Color.Transparent))
+        Row(
+            modifier = Modifier
+                .height(40.dp)
+                .background(SurfaceDark, RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp))
+        ) {
+            Box(modifier = Modifier.fillMaxHeight().aspectRatio(1f).padding(8.dp).background(AccentGreen.copy(alpha = 0.2f), RoundedCornerShape(2.dp)), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(14.dp).background(AccentGreen, RoundedCornerShape(1.dp)))
+            }
+            Box(modifier = Modifier.fillMaxHeight().aspectRatio(1f).padding(8.dp).background(Color.Transparent), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(14.dp).background(TextSecondary, RoundedCornerShape(1.dp)))
+            }
         }
         
         Spacer(modifier = Modifier.weight(1f))
@@ -53,22 +63,29 @@ fun InstancesHeader(
         // Search Bar
         Row(
             modifier = Modifier
-                .width(300.dp)
-                .background(SurfaceDark, RoundedCornerShape(4.dp))
-                .border(1.dp, DividerColor, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .width(400.dp)
+                .height(40.dp)
+                .background(SurfaceDark, RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp))
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(16.dp).background(Color.Gray)) // Search Icon
-            Spacer(modifier = Modifier.width(8.dp))
+            Box(modifier = Modifier.size(16.dp).background(TextSecondary)) // Search Icon
+            Spacer(modifier = Modifier.width(12.dp))
             Text(text = stringResource(R.string.filter_instances), color = TextSecondary, fontSize = 14.sp)
         }
         
         Spacer(modifier = Modifier.width(16.dp))
         
         // Filter Icon
-        Box(modifier = Modifier.size(36.dp).background(SurfaceDark, RoundedCornerShape(4.dp)).border(1.dp, DividerColor, RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-            Box(modifier = Modifier.size(18.dp).background(Color.Gray))
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(SurfaceDark, RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(modifier = Modifier.size(18.dp).background(TextSecondary))
         }
     }
 }

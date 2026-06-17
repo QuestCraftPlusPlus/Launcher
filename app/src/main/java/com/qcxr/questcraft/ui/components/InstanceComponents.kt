@@ -31,8 +31,8 @@ fun InstanceGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(4),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
         modifier = modifier
     ) {
         itemsIndexed(instances) { index, instance ->
@@ -50,12 +50,12 @@ fun InstanceCard(instance: Instance, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1.4f)
-            .background(SurfaceDark, RoundedCornerShape(8.dp))
+            .aspectRatio(1.5f)
+            .background(SurfaceDark, RoundedCornerShape(4.dp))
             .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) AccentGreen else DividerColor,
-                shape = RoundedCornerShape(8.dp)
+                width = if (isSelected) 1.dp else 0.dp,
+                color = if (isSelected) AccentGreen else Color.Transparent,
+                shape = RoundedCornerShape(4.dp)
             )
             .clickable { onClick() }
             .padding(16.dp)
@@ -67,29 +67,46 @@ fun InstanceCard(instance: Instance, isSelected: Boolean, onClick: () -> Unit) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(60.dp)
-                    .background(instance.color.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    .size(50.dp)
+                    .background(instance.color.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+                    .border(1.dp, instance.color.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 // Lightning bolt placeholder
-                Box(modifier = Modifier.size(30.dp).background(instance.color, RoundedCornerShape(2.dp)))
+                Box(modifier = Modifier.size(20.dp).background(instance.color, RoundedCornerShape(1.dp)))
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = instance.jLibInstance.instanceName, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            // TODO: Change versionType to loaderName
-            Text(text = "${instance.jLibInstance.versionName} • ${instance.jLibInstance.versionType}", color = AccentGreen, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = instance.jLibInstance.instanceName.uppercase(),
+                color = TextPrimary,
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row {
+                Text(text = instance.jLibInstance.versionName, color = AccentGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = " • ", color = TextSecondary, fontSize = 10.sp)
+                Text(text = instance.jLibInstance.versionType, color = TextSecondary, fontSize = 10.sp)
+            }
         }
         
         // Menu dots
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(34.dp)
-                .border(1.dp, DividerColor, RoundedCornerShape(4.dp)),
+                .size(24.dp)
+                .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text("...", color = TextSecondary, fontSize = 12.sp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(modifier = Modifier.size(2.dp).background(TextSecondary))
+                Spacer(modifier = Modifier.height(2.dp))
+                Box(modifier = Modifier.size(2.dp).background(TextSecondary))
+                Spacer(modifier = Modifier.height(2.dp))
+                Box(modifier = Modifier.size(2.dp).background(TextSecondary))
+            }
         }
     }
 }

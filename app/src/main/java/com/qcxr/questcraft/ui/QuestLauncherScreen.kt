@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.qcxr.questcraft.MainActivity
@@ -29,8 +28,7 @@ import com.qcxr.questcraft.ui.components.InstanceGrid
 import com.qcxr.questcraft.ui.components.InstancesHeader
 import com.qcxr.questcraft.ui.components.SideBar
 import com.qcxr.questcraft.ui.components.TopBrandBar
-import com.qcxr.questcraft.ui.theme.BackgroundDark
-import com.qcxr.questcraft.ui.theme.QuestCraftTheme
+import com.qcxr.questcraft.ui.theme.*
 import com.qcxr.questcraft.utils.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -41,10 +39,13 @@ import org.angelauramc.judgelib.installer.LoaderType
 @Composable
 fun QuestLauncherScreen() {
     val scope = rememberCoroutineScope()
+    val instanceColors = listOf(InstanceIconGreen, InstanceIconBrown, InstanceIconGrey, InstanceIconRed)
     val instances = remember {
         mutableStateListOf<Instance>().apply {
             val existingInstances = MainActivity.judgeLibAPI.getInstances(Constants.INSTANCE_ROOT_PATH())
-            addAll(existingInstances.map { Instance(it, Color.Green) })
+            addAll(existingInstances.mapIndexed { index, it -> 
+                Instance(it, instanceColors[index % instanceColors.size]) 
+            })
         }
     }
     var selectedInstanceIndex by remember { mutableIntStateOf(0) }
@@ -139,7 +140,9 @@ fun QuestLauncherScreen() {
                             MainActivity.judgeLibAPI.getInstances(Constants.INSTANCE_ROOT_PATH())
                         }
                         instances.clear()
-                        instances.addAll(updatedInstances.map { Instance(it, Color.Green) })
+                        instances.addAll(updatedInstances.mapIndexed { index, it -> 
+                            Instance(it, instanceColors[index % instanceColors.size]) 
+                        })
                     }
                 }
             )
