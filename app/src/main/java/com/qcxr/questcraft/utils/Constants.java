@@ -12,7 +12,14 @@ public final class Constants {
     }
 
     public static Path INSTANCE_ROOT_PATH() {
-        Path filesDir = MainActivity.weakMe.get().getFilesDir().toPath();
-        return filesDir.resolve("instances");
+        return ROOT_DATA_PATH().resolve("instances");
+    }
+
+    public static Path MINECRAFT_ASSETS_PATH() {
+        return ROOT_DATA_PATH().resolve("assets");
+    }
+
+    public static Path MINECRAFT_LIBRARIES_PATH() {
+        return ROOT_DATA_PATH().resolve("libraries");
     }
 }

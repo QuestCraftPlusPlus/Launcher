@@ -43,6 +43,7 @@ public class MainActivity extends ComponentActivity {
         uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
         judgeLibAPI.initialize(new InitInfo("d17a73a2-707c-40f5-8c90-d3eda0956f10", "https://login.microsoftonline.com/consumers/", Constants.ROOT_DATA_PATH().toString(), this::printCallback));
+        judgeLibAPI.chooseLauncher("ANDROID");
         //start(new XRActivityInput(), getAssets());
         setContentView(UIActivity.createView(this));
     }
