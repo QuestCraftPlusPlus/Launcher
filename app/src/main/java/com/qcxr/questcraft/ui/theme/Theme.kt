@@ -2,13 +2,17 @@ package com.qcxr.questcraft.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -51,7 +55,24 @@ fun QuestCraftTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+        typography = Typography
+    ) {
+        BoxWithConstraints {
+            val density = LocalDensity.current
+            val referenceWidth = 1280f
+            val screenWidthPx = constraints.maxWidth.toFloat()
+            
+            // Avoid division by zero and handle cases where constraints might be infinite
+            val targetDensityValue = if (screenWidthPx > 0) screenWidthPx / referenceWidth else density.density
+            
+            val adaptiveDensity = Density(
+                density = targetDensityValue,
+                fontScale = density.fontScale
+            )
+
+            CompositionLocalProvider(LocalDensity provides adaptiveDensity) {
+                content()
+            }
+        }
+    }
 }

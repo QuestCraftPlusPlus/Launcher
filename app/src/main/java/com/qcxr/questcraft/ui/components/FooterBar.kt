@@ -5,6 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcxr.questcraft.ui.theme.*
@@ -22,5 +23,13 @@ fun FooterBar(modifier: Modifier = Modifier) {
         Text(text = "CPU 23%    RAM 5.2 GB    FPS 72", color = AccentGreen, fontSize = 14.sp)
         Spacer(modifier = Modifier.weight(1f))
         Text(text = "QUEST-3_EXT | v3.1.0-STABLE ?", color = TextSecondary, fontSize = 14.sp)
+    }
+}
+
+@Preview(widthDp = 1280)
+@Composable
+fun FooterBarPreview() {
+    QuestCraftTheme {
+        FooterBar()
     }
 }
