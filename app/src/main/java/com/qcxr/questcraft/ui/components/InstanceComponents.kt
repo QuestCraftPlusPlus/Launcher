@@ -50,8 +50,8 @@ fun InstanceCard(instance: Instance, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1.5f)
-            .background(SurfaceDark, RoundedCornerShape(4.dp))
+            .aspectRatio(1.25f)
+            .background(SurfaceDark, RoundedCornerShape(2.dp))
             .border(
                 width = if (isSelected) 1.dp else 0.dp,
                 color = if (isSelected) AccentGreen else Color.Transparent,
@@ -67,27 +67,28 @@ fun InstanceCard(instance: Instance, isSelected: Boolean, onClick: () -> Unit) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(50.dp)
+                    // box for icon
+                    .size(70.dp)
                     .background(instance.color.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
                     .border(1.dp, instance.color.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Lightning bolt placeholder
-                Box(modifier = Modifier.size(20.dp).background(instance.color, RoundedCornerShape(1.dp)))
+                // Icon itself
+                Box(modifier = Modifier.size(60.dp).background(instance.color, RoundedCornerShape(1.dp)))
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = instance.jLibInstance.instanceName.uppercase(),
                 color = TextPrimary,
                 fontWeight = FontWeight.Black,
-                fontSize = 14.sp
+                fontSize = 18.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row {
-                Text(text = instance.jLibInstance.versionName, color = AccentGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = instance.jLibInstance.versionName, color = AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text(text = " • ", color = TextSecondary, fontSize = 10.sp)
-                Text(text = instance.jLibInstance.versionType, color = TextSecondary, fontSize = 10.sp)
+                Text(text = instance.jLibInstance.versionType, color = TextSecondary, fontSize = 12.sp)
             }
         }
         

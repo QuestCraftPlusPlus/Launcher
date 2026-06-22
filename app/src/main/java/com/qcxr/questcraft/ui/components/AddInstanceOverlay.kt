@@ -60,7 +60,7 @@ fun AddInstanceOverlay(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Text(text = stringResource(R.string.instance_name), color = TextSecondary, fontSize = 12.sp)
+                Text(text = stringResource(R.string.instance_name), color = TextSecondary, fontSize = 10.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = instanceName,

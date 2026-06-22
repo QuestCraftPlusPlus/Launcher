@@ -8,6 +8,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -21,25 +25,17 @@ fun TopBrandBar(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp),
+            .padding(top = 10.dp, bottom = 10.dp, start = 24.dp, end = 24.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "QUESTCRAFT",
-            color = AccentGreen,
-            fontWeight = FontWeight.Black,
-            fontSize = 20.sp,
-            letterSpacing = 1.sp
-        )
-        Spacer(modifier = Modifier.width(24.dp))
-        Box(modifier = Modifier.size(1.dp, 16.dp).background(DividerColor))
-        Spacer(modifier = Modifier.width(24.dp))
-        Text(
-            text = stringResource(R.string.instances).uppercase(),
-            color = TextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
+        Image(
+            painter = painterResource(id = R.drawable.qctitlecomp),
+            contentDescription = "QuestCraft",
+            contentScale = ContentScale.FillBounds,
+            modifier = Modifier
+                .size(width = 300.dp, height = 50.dp)
+                .aspectRatio(3f / 0.5f)
+
         )
         Spacer(modifier = Modifier.weight(1f))
 
@@ -52,22 +48,29 @@ fun TopBrandBar(modifier: Modifier = Modifier) {
                 .border(1.dp, DividerColor, RoundedCornerShape(2.dp))
                 .padding(horizontal = 12.dp)
         ) {
-            Box(modifier = Modifier.size(8.dp).background(StatusStable, RoundedCornerShape(1.dp)))
+            Box(modifier = Modifier.size(18.dp).background(color=StatusStable, RoundedCornerShape(1.dp)))
             Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "STABLE", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+            Text(text = "EXPERIMENTAL", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            // color and text should change depending on what build it is
+            // my guess and what colors should be are the following:
+
+            // experimental (default unless changed for a release) = keep green ig
+            // alpha/patreon = orange icon, ALPHA # where # is build # for vers
+            // betas = yellow or pink, BETA #
+        }   // releases = green, can be called stable or just state their version # in the box
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        // Notification Icon Placeholder
+        // Account Name
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(height = 40.dp, width = 220.dp)
                 .background(SurfaceDark, RoundedCornerShape(2.dp))
-                .border(1.dp, DividerColor, RoundedCornerShape(2.dp)),
-            contentAlignment = Alignment.Center
+                .border(1.dp, DividerColor, RoundedCornerShape(2.dp))
+                .padding(end = 10.dp),
+            contentAlignment = Alignment.CenterEnd
         ) {
-            Box(modifier = Modifier.size(20.dp).background(TextSecondary))
+            Text(text = "JoeMinecraft", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.width(16.dp))

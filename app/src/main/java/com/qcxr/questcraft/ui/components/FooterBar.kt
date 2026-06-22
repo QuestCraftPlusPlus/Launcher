@@ -18,22 +18,10 @@ fun FooterBar(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = ">_ VIEW CONSOLE", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.width(32.dp))
-        
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "CPU ", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(text = "23%", color = AccentGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(text = "RAM ", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(text = "5.2 GB", color = AccentGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(text = "FPS ", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(text = "72", color = AccentGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
         
         Spacer(modifier = Modifier.weight(1f))
         

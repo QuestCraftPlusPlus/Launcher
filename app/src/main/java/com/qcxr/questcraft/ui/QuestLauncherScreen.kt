@@ -35,17 +35,44 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.angelauramc.judgelib.installer.LoaderType
+import org.angelauramc.judgelib.instance.JudgeLibInstance
 
 @Composable
 fun QuestLauncherScreen() {
     val scope = rememberCoroutineScope()
-    val instanceColors = listOf(InstanceIconGreen, InstanceIconBrown, InstanceIconGrey, InstanceIconRed)
+    val instanceColors =
+        listOf(InstanceIconGreen, InstanceIconBrown, InstanceIconGrey, InstanceIconRed)
     val instances = remember {
         mutableStateListOf<Instance>().apply {
-            val existingInstances = MainActivity.judgeLibAPI.getInstances(Constants.INSTANCE_ROOT_PATH())
-            addAll(existingInstances.mapIndexed { index, it -> 
-                Instance(it, instanceColors[index % instanceColors.size]) 
-            })
+/*            val existingInstances = MainActivity.judgeLibAPI.getInstances(Constants.INSTANCE_ROOT_PATH())
+            addAll(existingInstances.mapIndexed { index, it ->
+                Instance(it, instanceColors[index % instanceColors.size])
+            })*/
+            val fakeInstance = JudgeLibInstance()
+            fakeInstance.instanceName = "Test Instance"
+            fakeInstance.versionName = "1.20.4"
+            fakeInstance.versionType = "Fabric"
+            add(Instance(fakeInstance, InstanceIconGreen))
+            val fakeInstance2 = JudgeLibInstance()
+            fakeInstance2.instanceName = "Test Instance 2"
+            fakeInstance2.versionName = "26.1"
+            fakeInstance2.versionType = "Fabric"
+            add(Instance(fakeInstance2, InstanceIconGreen))
+            val fakeInstance3 = JudgeLibInstance()
+            fakeInstance3.instanceName = "Test Instance 3"
+            fakeInstance3.versionName = "1.21.1"
+            fakeInstance3.versionType = "NeoForge"
+            add(Instance(fakeInstance3, InstanceIconGreen))
+            val fakeInstance4 = JudgeLibInstance()
+            fakeInstance4.instanceName = "Test Instance 4"
+            fakeInstance4.versionName = "1.19.4"
+            fakeInstance4.versionType = "Fabric"
+            add(Instance(fakeInstance4, InstanceIconGreen))
+            val fakeInstance5 = JudgeLibInstance()
+            fakeInstance5.instanceName = "Test Instance 5"
+            fakeInstance5.versionName = "1.20.1"
+            fakeInstance5.versionType = "Fabric"
+            add(Instance(fakeInstance5, InstanceIconGreen))
         }
     }
     var selectedInstanceIndex by remember { mutableIntStateOf(0) }

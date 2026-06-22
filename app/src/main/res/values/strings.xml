@@ -16,7 +16,7 @@
     <string name="select_loader">Select Loader</string>
     <string name="cancel">CANCEL</string>
     <string name="create">CREATE</string>
-    <string name="filter_instances">Filter instances...</string>
+    <string name="filter_instances">Search Instances</string>
     <string name="selected_instance">SELECTED INSTANCE</string>
     <string name="version">VERSION</string>
     <string name="loader">LOADER</string>
