@@ -21,9 +21,14 @@ import com.qcxr.questcraft.R
 import com.qcxr.questcraft.ui.theme.*
 import org.angelauramc.judgelib.JudgeLibAPI
 import org.angelauramc.judgelib.launcher.AndroidJavaLauncher
+import org.angelauramc.judgelib.util.json.auth.JudgeLibAccount
 
 @Composable
-fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier) {
+fun BottomControlBar(
+    selectedInstance: Instance?,
+    selectedAccount: JudgeLibAccount?,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -67,10 +72,10 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
         
         Button(
             onClick = {
-                // TODO: Implement custom args | Do account impl
+                // TODO: Implement custom args
                 MainActivity.androidJavaLauncher.prepareGame(
                     selectedInstance?.jLibInstance,
-                    null,
+                    selectedAccount,
                     null,
                     null
                 )
@@ -95,6 +100,6 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
 @Composable
 fun BottomControlBarPreview() {
     QuestCraftTheme {
-        BottomControlBar(selectedInstance = null)
+        BottomControlBar(selectedInstance = null, selectedAccount = null)
     }
 }

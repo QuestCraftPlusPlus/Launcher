@@ -31,10 +31,14 @@ public class MainActivity extends ComponentActivity {
     private NativeSurface nativeSurface;
 
     public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
-    public static AndroidJavaLauncher androidJavaLauncher = new AndroidJavaLauncher();
+    public static AndroidJavaLauncher androidJavaLauncher;
+
+    public static String userLoginCode = null;
 
     static {
         System.loadLibrary("qcxr");
+        judgeLibAPI.chooseLauncher("ANDROID");
+        androidJavaLauncher = (AndroidJavaLauncher) BaseJavaLauncher.INSTANCE;
     }
 
     @Override
@@ -45,12 +49,26 @@ public class MainActivity extends ComponentActivity {
         weakMe = new WeakReference<>(this);
 
         // JudgeLib Init
-        judgeLibAPI.initialize(new InitInfo(Constants.CLIENT_ID, Constants.LOGIN_AUTHORITY, Constants.INTERNAL_DATA_PATH().toString(), this::printCallback));
-        judgeLibAPI.chooseLauncher("ANDROID");
-        androidJavaLauncher.setup(null, "libmobileglues.so", Constants.MINECRAFT_LIBRARIES_PATH(), Constants.INTERNAL_DATA_PATH());
+        initJudgeLib();
 
         //start(new XRActivityInput(), getAssets());
         setContentView(UIActivity.createView(this));
+    }
+
+    private void initJudgeLib() {
+        // Initialize JudgeLib with mandatory info
+        judgeLibAPI.initialize(new InitInfo(
+                Constants.CLIENT_ID,
+                Constants.LOGIN_AUTHORITY,
+                Constants.INTERNAL_DATA_PATH().toString(),
+                this::deviceCodeCallback
+        ));
+
+        // Launcher is already chosen in the static block. 
+        // We just need to ensure it's set up with the current activity's paths.
+        if (androidJavaLauncher != null) {
+            androidJavaLauncher.setup("libmobileglues.so", Constants.MINECRAFT_LIBRARIES_PATH().toString(), Constants.INTERNAL_DATA_PATH().toString());
+        }
     }
 
     @Override
@@ -59,8 +77,10 @@ public class MainActivity extends ComponentActivity {
         stop();
     }
 
-    private void printCallback(DeviceCode res) {
-        System.out.println(res.message());
+    private void deviceCodeCallback(DeviceCode res) {
+        if (res != null) {
+            userLoginCode = res.userCode();
+        }
     }
 
     private void setDensity() {
