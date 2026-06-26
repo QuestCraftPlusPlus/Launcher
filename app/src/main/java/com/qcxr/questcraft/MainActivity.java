@@ -11,7 +11,6 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.microsoft.aad.msal4j.DeviceCode;
-import com.qcxr.questcraft.ui.QuestLauncherScreenKt;
 import com.qcxr.questcraft.ui.UIActivity;
 import com.qcxr.questcraft.utils.Constants;
 
@@ -21,16 +20,18 @@ import androidx.activity.ComponentActivity;
 
 import org.angelauramc.judgelib.JudgeLibAPI;
 import org.angelauramc.judgelib.impl.InitInfo;
-import org.slf4j.Logger;
+import org.angelauramc.judgelib.launcher.AndroidJavaLauncher;
+import org.angelauramc.judgelib.launcher.BaseJavaLauncher;
 
 public class MainActivity extends ComponentActivity {
     private static Handler uiThreadHandler;
-    public static WeakReference<MainActivity> weakMe;
+    public static WeakReference<MainActivity> weakMe = new WeakReference<>(null);
 
     public static View questLauncherView;
     private NativeSurface nativeSurface;
 
     public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
+    public static AndroidJavaLauncher androidJavaLauncher = new AndroidJavaLauncher();
 
     static {
         System.loadLibrary("qcxr");
@@ -42,8 +43,12 @@ public class MainActivity extends ComponentActivity {
         //setDensity();
         uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
-        judgeLibAPI.initialize(new InitInfo("d17a73a2-707c-40f5-8c90-d3eda0956f10", "https://login.microsoftonline.com/consumers/", Constants.ROOT_DATA_PATH().toString(), this::printCallback));
+
+        // JudgeLib Init
+        judgeLibAPI.initialize(new InitInfo(Constants.CLIENT_ID, Constants.LOGIN_AUTHORITY, Constants.INTERNAL_DATA_PATH().toString(), this::printCallback));
         judgeLibAPI.chooseLauncher("ANDROID");
+        androidJavaLauncher.setup(null, "libmobileglues.so", Constants.MINECRAFT_LIBRARIES_PATH(), Constants.INTERNAL_DATA_PATH());
+
         //start(new XRActivityInput(), getAssets());
         setContentView(UIActivity.createView(this));
     }

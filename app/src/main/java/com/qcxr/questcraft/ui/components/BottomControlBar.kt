@@ -16,8 +16,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcxr.questcraft.MainActivity
 import com.qcxr.questcraft.R
 import com.qcxr.questcraft.ui.theme.*
+import org.angelauramc.judgelib.JudgeLibAPI
+import org.angelauramc.judgelib.launcher.AndroidJavaLauncher
 
 @Composable
 fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier) {
@@ -63,7 +66,16 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
         Spacer(modifier = Modifier.width(16.dp))
         
         Button(
-            onClick = {},
+            onClick = {
+                // TODO: Implement custom args | Do account impl
+                MainActivity.androidJavaLauncher.prepareGame(
+                    selectedInstance?.jLibInstance,
+                    null,
+                    null,
+                    null
+                )
+                MainActivity.androidJavaLauncher.launchGame()
+            },
             modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
             shape = RoundedCornerShape(4.dp),
