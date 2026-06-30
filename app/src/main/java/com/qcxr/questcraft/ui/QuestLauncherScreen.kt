@@ -39,10 +39,11 @@ import com.qcxr.questcraft.ui.components.MicrosoftLoginOverlay
 import com.qcxr.questcraft.ui.theme.*
 import com.qcxr.questcraft.utils.Constants
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.angelauramc.judgelib.installer.DownloadTracker
 import org.angelauramc.judgelib.installer.LoaderType
+import org.angelauramc.judgelib.instance.InstanceFormat
 import org.angelauramc.judgelib.util.json.auth.JudgeLibAccount
 
 @Composable
@@ -156,25 +157,33 @@ fun QuestLauncherScreen() {
                     installProgressDetail = "0 / 124 MB"
 
                     scope.launch {
-                        // Set up real progress callback from JudgeLibAPI
-                        MainActivity.judgeLibAPI.installProgressCallback { progress, fileName ->
-                            installProgress = progress.toFloat() / 100f
-                            installCurrentFile = fileName
-                            installProgressDetail = "" // Reset or update if more info is available
+                        val downloadTracker = DownloadTracker { tracker ->
+                            // Use the .progress, .downloadedBytes and .totalBytes properties via getters
+                            installProgress = tracker.progress.toFloat()
+                            val downloadedMB = tracker.downloadedBytes / (1024 * 1024)
+                            val totalMB = tracker.totalBytes / (1024 * 1024)
+                            installProgressDetail = "$downloadedMB / $totalMB MB"
                         }
 
+                        installStatus = "Downloading Assets & Libraries..."
+                        installCurrentFile = "Processing files..."
+
                         val versionObj = withContext(Dispatchers.IO) {
-                            val mcVersion = LoaderType.VANILLA.metadata.getMinecraftVersion(version)
+                            val loaderType = if (loader.equals("Fabric", ignoreCase = true)) LoaderType.FABRIC else LoaderType.VANILLA
+                            val mcVersion = loaderType.metadata.getMinecraftVersion(version)
                             MainActivity.judgeLibAPI.installVersion(
                                 mcVersion,
                                 Constants.MINECRAFT_ASSETS_PATH(),
-                                Constants.MINECRAFT_LIBRARIES_PATH()
+                                Constants.MINECRAFT_LIBRARIES_PATH(),
+                                downloadTracker
                             )
                         }
 
+                        installStatus = "Creating Instance..."
                         withContext(Dispatchers.IO) {
                             MainActivity.judgeLibAPI.createInstance(
                                 name,
+                                InstanceFormat.HOTSPOT_JVM, //TODO: Make a real option
                                 versionObj,
                                 Constants.INSTANCE_ROOT_PATH(),
                                 Constants.MINECRAFT_ASSETS_PATH()

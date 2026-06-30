@@ -20,8 +20,6 @@ import androidx.activity.ComponentActivity;
 
 import org.angelauramc.judgelib.JudgeLibAPI;
 import org.angelauramc.judgelib.impl.InitInfo;
-import org.angelauramc.judgelib.launcher.AndroidJavaLauncher;
-import org.angelauramc.judgelib.launcher.BaseJavaLauncher;
 
 public class MainActivity extends ComponentActivity {
     private static Handler uiThreadHandler;
@@ -31,14 +29,10 @@ public class MainActivity extends ComponentActivity {
     private NativeSurface nativeSurface;
 
     public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
-    public static AndroidJavaLauncher androidJavaLauncher;
-
     public static String userLoginCode = null;
 
     static {
         System.loadLibrary("qcxr");
-        judgeLibAPI.chooseLauncher("ANDROID");
-        androidJavaLauncher = (AndroidJavaLauncher) BaseJavaLauncher.INSTANCE;
     }
 
     @Override
@@ -63,12 +57,6 @@ public class MainActivity extends ComponentActivity {
                 Constants.INTERNAL_DATA_PATH().toString(),
                 this::deviceCodeCallback
         ));
-
-        // Launcher is already chosen in the static block. 
-        // We just need to ensure it's set up with the current activity's paths.
-        if (androidJavaLauncher != null) {
-            androidJavaLauncher.setup("libmobileglues.so", Constants.MINECRAFT_LIBRARIES_PATH().toString(), Constants.INTERNAL_DATA_PATH().toString());
-        }
     }
 
     @Override

@@ -43,4 +43,8 @@ public final class Constants {
     public static Path MINECRAFT_LIBRARIES_PATH() {
         return INTERNAL_DATA_PATH().resolve("libraries");
     }
+
+    public static Path JAVA_RUNTIMES_PATH() {
+        return INTERNAL_DATA_PATH().resolve("runtimes");
+    }
 }

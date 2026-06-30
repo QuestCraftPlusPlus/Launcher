@@ -19,8 +19,10 @@ import androidx.compose.ui.unit.sp
 import com.qcxr.questcraft.MainActivity
 import com.qcxr.questcraft.R
 import com.qcxr.questcraft.ui.theme.*
+import com.qcxr.questcraft.utils.Constants
 import org.angelauramc.judgelib.JudgeLibAPI
-import org.angelauramc.judgelib.launcher.AndroidJavaLauncher
+import org.angelauramc.judgelib.instance.InstanceFormat
+import org.angelauramc.judgelib.launcher.Platform
 import org.angelauramc.judgelib.util.json.auth.JudgeLibAccount
 
 @Composable
@@ -72,14 +74,17 @@ fun BottomControlBar(
         
         Button(
             onClick = {
-                // TODO: Implement custom args
-                MainActivity.androidJavaLauncher.prepareGame(
+                // TODO: Pass in proper values
+                MainActivity.judgeLibAPI.launchInstance(
                     selectedInstance?.jLibInstance,
                     selectedAccount,
+                    Platform.ANDROID,
                     null,
-                    null
+                    null,
+                    Constants.JAVA_RUNTIMES_PATH().resolve("jdk25-amethyst").toString(),
+                    Constants.MINECRAFT_LIBRARIES_PATH().toString(),
+                    "libmobileglues.so"
                 )
-                MainActivity.androidJavaLauncher.launchGame()
             },
             modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
