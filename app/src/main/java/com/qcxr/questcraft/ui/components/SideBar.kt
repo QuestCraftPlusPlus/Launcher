@@ -47,7 +47,6 @@ fun SideBar(
         Spacer(modifier = Modifier.height(8.dp))
         
         SideBarItem(stringResource(R.string.instances), isSelected = selectedItem == stringResource(R.string.instances), onClick = { onItemClick(it) })
-        SideBarItem(stringResource(R.string.mods), isSelected = selectedItem == stringResource(R.string.mods), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.accounts), isSelected = selectedItem == stringResource(R.string.accounts), onClick = { onItemClick(it) })
         SideBarItem(stringResource(R.string.settings), isSelected = selectedItem == stringResource(R.string.settings), onClick = { onItemClick(it) })
         

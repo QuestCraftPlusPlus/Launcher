@@ -11,7 +11,6 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.microsoft.aad.msal4j.DeviceCode;
-import com.qcxr.questcraft.ui.QuestLauncherScreenKt;
 import com.qcxr.questcraft.ui.UIActivity;
 import com.qcxr.questcraft.utils.Constants;
 
@@ -21,16 +20,16 @@ import androidx.activity.ComponentActivity;
 
 import org.angelauramc.judgelib.JudgeLibAPI;
 import org.angelauramc.judgelib.impl.InitInfo;
-import org.slf4j.Logger;
 
 public class MainActivity extends ComponentActivity {
     private static Handler uiThreadHandler;
-    public static WeakReference<MainActivity> weakMe;
+    public static WeakReference<MainActivity> weakMe = new WeakReference<>(null);
 
     public static View questLauncherView;
     private NativeSurface nativeSurface;
 
     public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
+    public static String userLoginCode = null;
 
     static {
         System.loadLibrary("qcxr");
@@ -42,10 +41,22 @@ public class MainActivity extends ComponentActivity {
         //setDensity();
         uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
-        judgeLibAPI.initialize(new InitInfo("d17a73a2-707c-40f5-8c90-d3eda0956f10", "https://login.microsoftonline.com/consumers/", Constants.ROOT_DATA_PATH().toString(), this::printCallback));
-        judgeLibAPI.chooseLauncher("ANDROID");
+
+        // JudgeLib Init
+        initJudgeLib();
+
         //start(new XRActivityInput(), getAssets());
         setContentView(UIActivity.createView(this));
+    }
+
+    private void initJudgeLib() {
+        // Initialize JudgeLib with mandatory info
+        judgeLibAPI.initialize(new InitInfo(
+                Constants.CLIENT_ID,
+                Constants.LOGIN_AUTHORITY,
+                Constants.INTERNAL_DATA_PATH().toString(),
+                this::deviceCodeCallback
+        ));
     }
 
     @Override
@@ -54,8 +65,10 @@ public class MainActivity extends ComponentActivity {
         stop();
     }
 
-    private void printCallback(DeviceCode res) {
-        System.out.println(res.message());
+    private void deviceCodeCallback(DeviceCode res) {
+        if (res != null) {
+            userLoginCode = res.userCode();
+        }
     }
 
     private void setDensity() {

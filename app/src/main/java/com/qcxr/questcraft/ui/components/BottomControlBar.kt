@@ -16,11 +16,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcxr.questcraft.MainActivity
 import com.qcxr.questcraft.R
 import com.qcxr.questcraft.ui.theme.*
+import com.qcxr.questcraft.utils.Constants
+import org.angelauramc.judgelib.JudgeLibAPI
+import org.angelauramc.judgelib.instance.InstanceFormat
+import org.angelauramc.judgelib.launcher.Platform
+import org.angelauramc.judgelib.util.json.auth.JudgeLibAccount
 
 @Composable
-fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier) {
+fun BottomControlBar(
+    selectedInstance: Instance?,
+    selectedAccount: JudgeLibAccount?,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -63,7 +73,19 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
         Spacer(modifier = Modifier.width(16.dp))
         
         Button(
-            onClick = {},
+            onClick = {
+                // TODO: Pass in proper values
+                MainActivity.judgeLibAPI.launchInstance(
+                    selectedInstance?.jLibInstance,
+                    selectedAccount,
+                    Platform.ANDROID,
+                    null,
+                    null,
+                    Constants.JAVA_RUNTIMES_PATH().resolve("jdk25-amethyst").toString(),
+                    Constants.MINECRAFT_LIBRARIES_PATH().toString(),
+                    "libmobileglues.so"
+                )
+            },
             modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
             shape = RoundedCornerShape(4.dp),
@@ -83,6 +105,6 @@ fun BottomControlBar(selectedInstance: Instance?, modifier: Modifier = Modifier)
 @Composable
 fun BottomControlBarPreview() {
     QuestCraftTheme {
-        BottomControlBar(selectedInstance = null)
+        BottomControlBar(selectedInstance = null, selectedAccount = null)
     }
 }
