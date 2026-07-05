@@ -6,6 +6,8 @@ espressoCore = "3.7.0"
 appcompat = "1.7.1"
 material = "1.13.0"
 constraintlayout = "2.2.1"
+mullvad-rust = "0.10.1"
+openxr-loader = "1.1.60"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -15,6 +17,8 @@ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "a
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 
+openxr-loader = { group = "org.khronos.openxr", name = "openxr_loader_for_android", version.ref = "openxr-loader" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-
+rust-android = { id = "net.mullvad.rust-android", version.ref = "mullvad-rust" }
