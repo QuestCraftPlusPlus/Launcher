@@ -3,6 +3,8 @@ import com.android.build.api.dsl.ApplicationExtension
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.rust.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.android)
 }
 
 cargo {
@@ -13,7 +15,7 @@ cargo {
 
 configure<ApplicationExtension> {
     namespace = "com.qcxr.questcraft"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.qcxr.questcraft"
@@ -51,12 +53,28 @@ configure<ApplicationExtension> {
 
 dependencies {
     implementation(libs.openxr.loader)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.activity.compose)
+    implementation(libs.core.ktx)
+    implementation(libs.lifecycle.runtime.ktx)
+    implementation(libs.material3)
+    implementation(libs.compose.icons.extended)
+    implementation(libs.ui)
+    implementation(libs.ui.graphics)
+    implementation(libs.ui.tooling.preview)
+    implementation(files("libs/judgelib-0.1.0.jar"))
+    implementation(libs.msal4j)
+    implementation(libs.gson)
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.constraintlayout)
     testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
+    androidTestImplementation(libs.ui.test.junit4)
+    debugImplementation(libs.ui.test.manifest)
+    debugImplementation(libs.ui.tooling)
 }
 
 val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
@@ -112,5 +130,17 @@ val compileSlangShaders = tasks.register("compileSlangShaders") {
         } else {
             println("Notice: 'slangc' was not found in the system PATH. Skipping shader compilation.")
         }
+    }
+}
+android {
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    buildFeatures {
+        compose = true
+    }
+    kotlinOptions {
+        jvmTarget = "11"
     }
 }

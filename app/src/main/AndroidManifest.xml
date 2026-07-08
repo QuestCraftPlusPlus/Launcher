@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-permission android:name="horizonos.permission.USE_ANCHOR_API" />
@@ -15,22 +15,19 @@
 
     <application
         android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault"
+        android:theme="@style/Theme.QuestCraft"
         tools:targetApi="35">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="landscape"
             android:launchMode="singleTop"
+            android:screenOrientation="landscape"
             tools:ignore="DiscouragedApi">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
 
                 <category android:name="com.oculus.intent.category.VR" />
@@ -44,5 +41,12 @@
         <meta-data android:name="pvr.app.type" android:value="vr"/>
         <meta-data android:name="pvr.display.orientation" android:value="180"/>
         <meta-data android:name="pvr.sdk.version" android:value="OpenXR" />
+
+        <activity
+            android:name=".ui.UIActivity"
+            android:exported="false"
+            android:label="@string/title_activity_main"
+            android:theme="@style/Theme.QuestCraft"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
