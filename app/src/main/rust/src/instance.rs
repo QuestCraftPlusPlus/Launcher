@@ -31,10 +31,12 @@ use {
 use crate::jni_state::JniContext;
 
 pub struct XrInstance {
-    pub device: Device,
+    pub device: Arc<Device>,
     event_buf: xr::EventDataBuffer,
     instance: xr::Instance,
     system: xr::SystemId,
+
+    pub android_hardware_buffer: vk_graph::driver::ash::android::external_memory_android_hardware_buffer::Device
 }
 
 impl XrInstance {
@@ -144,7 +146,6 @@ impl XrInstance {
 
         let vk_extensions = [
             // vk::EXT_DEBUG_UTILS_NAME.as_ptr() // this s#!% crashes my headset for some reason
-
         ];
         let vk_layers = [];
 
@@ -301,11 +302,14 @@ impl XrInstance {
             })?;
             let event_buf = xr::EventDataBuffer::new();
 
+            let android_hardware_buffer = vk_graph::driver::ash::android::external_memory_android_hardware_buffer::Device::new(&vk_instance, &device);
+
             Ok(Self {
-                device,
+                device: Arc::new(device),
                 event_buf,
                 instance: xr_instance,
                 system,
+                android_hardware_buffer
             })
         }
 

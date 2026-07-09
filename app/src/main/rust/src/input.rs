@@ -8,6 +8,8 @@ pub struct Actions {
     action_set: xr::ActionSet,
     right_pos: xr::Action<xr::Posef>,
     left_pos: xr::Action<xr::Posef>,
+    right_click: xr::Action<f32>,
+    left_click: xr::Action<f32>,
 
     left_thumbstick: xr::Action<xr::Vector2f>,
     right_thumbstick: xr::Action<xr::Vector2f>,
@@ -27,6 +29,8 @@ pub struct InputState {
 /// (note) if you need any new inputs, put them here and extract them in InputState::extract
 pub struct ExtractedInputs {
     pub movement: [f32; 3], // world-space (i.e., needs to be transformed into camera-relative before it's really useful)
+    pub left_click_state: bool,
+    pub right_click_state: bool,
 
     pub left_hand_matrix: Option<Mat4>,
     pub right_hand_matrix: Option<Mat4>,
@@ -35,13 +39,19 @@ pub struct ExtractedInputs {
 impl InputState {
     pub fn new(instance: &xr::Instance, session: &xr::Session<xr::Vulkan>) -> Self {
         let action_set = instance
-            .create_action_set("input", "input pose information", 0)
+            .create_action_set("input", "Input Pose Information", 0)
             .unwrap();
         let right_pos = action_set
             .create_action::<xr::Posef>("right_hand", "Right Hand Controller", &[])
             .unwrap();
         let left_pos = action_set
             .create_action::<xr::Posef>("left_hand", "Left Hand Controller", &[])
+            .unwrap();
+        let right_click = action_set
+            .create_action::<f32>("right_click", "Right Hand Click", &[])
+            .unwrap();
+        let left_click = action_set
+            .create_action::<f32>("left_click", "Left Hand Click", &[])
             .unwrap();
         let right_thumbstick = action_set
             .create_action::<xr::Vector2f>("right_thumbstick", "Right Thumbstick", &[])
@@ -53,10 +63,12 @@ impl InputState {
             instance.string_to_path("/interaction_profiles/oculus/touch_controller")
                 .unwrap(),
             &[
-                xr::Binding::new(&right_pos, instance.string_to_path("/user/hand/right/input/grip/pose").unwrap()),
-                xr::Binding::new(&left_pos, instance.string_to_path("/user/hand/left/input/grip/pose").unwrap()),
+                xr::Binding::new(&right_pos, instance.string_to_path("/user/hand/right/input/aim/pose").unwrap()),
+                xr::Binding::new(&left_pos, instance.string_to_path("/user/hand/left/input/aim/pose").unwrap()),
                 xr::Binding::new(&right_thumbstick, instance.string_to_path("/user/hand/right/input/thumbstick").unwrap()),
                 xr::Binding::new(&left_thumbstick, instance.string_to_path("/user/hand/left/input/thumbstick").unwrap()),
+                xr::Binding::new(&right_click, instance.string_to_path("/user/hand/right/input/trigger/value").unwrap()),
+                xr::Binding::new(&left_click, instance.string_to_path("/user/hand/left/input/trigger/value").unwrap()),
             ]
         ).unwrap();
         session.attach_action_sets(&[&action_set]).unwrap();
@@ -73,6 +85,8 @@ impl InputState {
                 action_set,
                 left_pos,
                 right_pos,
+                left_click,
+                right_click,
                 left_thumbstick,
                 right_thumbstick
             },
@@ -97,6 +111,15 @@ impl InputState {
 
         if let Ok(state) = self.actions.left_thumbstick.state(session, xr::Path::NULL) {
             movement[1] = -state.current_state.y; // for some reason down on the thumbstick makes y positive? idk
+        }
+
+        let mut right_click_state = false;
+        if let Ok(state) = self.actions.right_click.state(session, xr::Path::NULL) {
+            right_click_state = state.current_state > 0.5;
+        }
+        let mut left_click_state = false;
+        if let Ok(state) = self.actions.left_click.state(session, xr::Path::NULL) {
+            left_click_state = state.current_state > 0.5;
         }
 
         let left_hand_matrix = self.actions.left_pos
@@ -124,6 +147,8 @@ impl InputState {
 
         ExtractedInputs {
             movement,
+            left_click_state,
+            right_click_state,
             left_hand_matrix,
             right_hand_matrix,
         }

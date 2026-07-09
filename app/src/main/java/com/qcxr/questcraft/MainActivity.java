@@ -45,7 +45,7 @@ public class MainActivity extends ComponentActivity {
         // JudgeLib Init
         initJudgeLib();
 
-        //start(new XRActivityInput(), getAssets());
+        start(new XRActivityInput(), getAssets());
         setContentView(UIActivity.createView(this));
     }
 
@@ -85,12 +85,9 @@ public class MainActivity extends ComponentActivity {
     private native void stop();
 
     @SuppressLint("SetJavaScriptEnabled")
-    public static void setVulkanSurface(Surface surface) {
+    public static void setVulkanSurface(Surface surface, int width, int height) {
         MainActivity me = weakMe.get();
         if (me == null) return;
-
-        int w = 2560;
-        int h = 1440;
 
         me.runOnUiThread(() -> {
             me.nativeSurface = new NativeSurface(me);
@@ -100,7 +97,7 @@ public class MainActivity extends ComponentActivity {
 
             me.nativeSurface.setChildView(questLauncherView);
 
-            me.setContentView(me.nativeSurface, new ViewGroup.LayoutParams(w, h));
+            me.setContentView(me.nativeSurface, new ViewGroup.LayoutParams(width, height));
         });
     }
 
@@ -109,5 +106,12 @@ public class MainActivity extends ComponentActivity {
             weakMe.get();
             System.exit(0);
         });
+    }
+
+    public static void requestUiRender() {
+        if(weakMe.get() != null) {
+            MainActivity me = weakMe.get();
+            if (me.nativeSurface != null) me.nativeSurface.requestUiRender();
+        }
     }
 }

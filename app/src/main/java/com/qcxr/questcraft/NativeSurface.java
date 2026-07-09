@@ -31,14 +31,7 @@ public class NativeSurface extends FrameLayout implements Choreographer.FrameCal
         post(()-> {
             this.surface = surface;
             this.hasSurface = true;
-            choreographer.postFrameCallback(this);
         });
-    }
-
-    private void setSurfaceInternal(Surface surface) {
-        this.surface = surface;
-        hasSurface = true;
-        choreographer.postFrameCallback(this);
     }
 
     public void setChildView(View view) {
@@ -55,6 +48,11 @@ public class NativeSurface extends FrameLayout implements Choreographer.FrameCal
         Canvas canvas = surface.lockHardwareCanvas();
         if(getChildCount() > 0) getChildAt(0).draw(canvas);
         surface.unlockCanvasAndPost(canvas);
-        choreographer.postFrameCallback(this);
+    }
+
+    public void requestUiRender() {
+        post(() -> {
+            choreographer.postFrameCallback(this);
+        });
     }
 }

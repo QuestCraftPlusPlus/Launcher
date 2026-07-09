@@ -1,7 +1,9 @@
 use std::thread::sleep;
 use std::time::Duration;
 use glam::{Mat4, Quat, Vec3};
+use jni::signature::Primitive::Void;
 use log::info;
+use ndk_sys::{AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP};
 use openxr::{EnvironmentBlendMode, FrameState, ViewConfigurationType};
 use vk_graph::driver::ash::vk;
 use {
@@ -30,6 +32,7 @@ use {
 use crate::stage::Stage;
 use crate::render::renderer::{PollError, Renderer, WaitError};
 use crate::scene::scene::Scene;
+use crate::surface::{Surface, SurfaceManager, SurfaceTexture};
 
 pub struct XrSession {
     pub(crate) running: bool,
@@ -150,9 +153,32 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
 
+    let mut surface = Surface::new(env, 1920, 1080);
+    let java_surface = jni::sys::jvalue { l: surface.java_surface.as_raw() };
+    let width = jni::sys::jvalue { i: 1920 };
+    let height = jni::sys::jvalue { i: 1080 };
+    unsafe {
+        env.call_static_method_unchecked(&ctx.main_activity_class, ctx.method_set_surface, ReturnType::Primitive(Void), &[
+            java_surface, width, height
+        ]).expect("Failed to set surface");
+    }
+
+    let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
+    let surface_node = &scene.assets.gltf_scene.nodes[surface_index];
+    let surface_mesh =
+        &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
+    let surface_transform = surface_node.global_transform;
+
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, surface_mesh);
+
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();
     let mut stage = Stage::new(translation, rotation, 1.0f32);
+
+    let mut old_surface_textures = Vec::new();
+    let mut last_surface_texture: Option<Arc<SurfaceTexture>> = None;
+
+    let mut previous_down_state = false;
 
     info!("Starting!!");
     let mut last_frame_time = Instant::now();
@@ -177,6 +203,19 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             }
         };
 
+        old_surface_textures.retain(|texture: &Arc<SurfaceTexture>| {
+            Arc::strong_count(&texture.image) > 1
+        });
+
+        unsafe {
+            let _ = env.call_static_method_unchecked(
+                &ctx.main_activity_class,
+                ctx.method_request_ui_render,
+                ReturnType::Primitive(Void),
+                &[],
+            );
+        } // hope to fuck this finishes before we need the texture
+
         let inputs = input.extract(&context.session.session, &context.stage, active_frame.predicted_display_time);
 
         let (_, views) = context.session.session.locate_views(
@@ -191,8 +230,55 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
         stage.move_relative(inputs.movement, head_rotation, delta_time);
 
+        let surface_texture = surface.update_texture(context.instance.device.clone(), &context.instance.android_hardware_buffer);
+        if let Some(surface_texture) = surface_texture {
+            last_surface_texture = Some(Arc::new(surface_texture));
+        }
+
         let world_to_stage = stage.world_to_stage_matrix();
         let stage_to_world = world_to_stage.inverse();
+
+        let mut pointer_transform = None;
+
+        if let Some(ref transform) = inputs.right_hand_matrix {
+            let hit = surface_manager.raycast_uv(stage_to_world * transform, surface_transform, -Vec3::Z);
+            if let Some(hit) = hit {
+                let uv = hit.uv;
+
+                let hit_normal = hit.world_normal.normalize();
+                let local_axis = Vec3::Y;
+                let rotation = Quat::from_rotation_arc(local_axis, hit_normal);
+                pointer_transform = Some(Mat4::from_scale_rotation_translation(
+                    Vec3::ONE,
+                    rotation,
+                    hit.world_position
+                ));
+
+                let action = if !previous_down_state && inputs.right_click_state {
+                    previous_down_state = true;
+                    AMOTION_EVENT_ACTION_DOWN
+                } else if previous_down_state && !inputs.right_click_state {
+                    previous_down_state = false;
+                    AMOTION_EVENT_ACTION_UP
+                } else {
+                    AMOTION_EVENT_ACTION_MOVE
+                };
+
+                let pointer_id = jni::sys::jvalue { i: 0 };
+                let action_val = jni::sys::jvalue { i: action as _ };
+                let norm_x = jni::sys::jvalue { f: uv.x };
+                let norm_y = jni::sys::jvalue { f: uv.y };
+
+                unsafe {
+                    env.call_static_method_unchecked(
+                        &ctx.xr_input_class,
+                        &ctx.method_process_pointer_event,
+                        ReturnType::Primitive(Void),
+                        &[pointer_id, action_val, norm_x, norm_y]
+                    ).expect("Failed to process pointer event");
+                }
+            }
+        }
 
         let payload = renderer::FramePayload {
             view_matrices: [
@@ -207,24 +293,40 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             xr_views: &views,
         };
 
-        renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
+        let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
-            if let Some(transform) = inputs.left_hand_matrix {
-                scene.record_controller(graph, draw_payload, stage_to_world * transform);
+            if let Some(ref transform) = inputs.left_hand_matrix {
+                let transform = stage_to_world * transform;
+                scene.record_controller(graph, draw_payload, &transform);
             }
-            if let Some(transform) = inputs.right_hand_matrix {
-                scene.record_controller(graph, draw_payload, stage_to_world * transform);
+            if let Some(ref transform) = inputs.right_hand_matrix {
+                let transform = stage_to_world * transform;
+                scene.record_controller(graph, draw_payload, &transform);
             }
-        }).expect("Fatal error in draw");
+            if let Some(ref last_surface_texture) = last_surface_texture {
+                surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, surface_transform);
+            }
+            if let Some(ref transform) = pointer_transform {
+                scene.record_pointer(graph, draw_payload, transform);
+            }
+        });
+        if result.is_err() {
+            log::error!("Fatal error during draw, exiting: {:?}", result.err());
+            break;
+        }
+
+        if let Some(ref last_surface_texture) = last_surface_texture {
+            old_surface_textures.push(Arc::clone(last_surface_texture));
+        }
     }
     info!("Exiting...");
 
-    unsafe {
-        let _ = env.call_static_method_unchecked(
-            &ctx.main_activity_class,
-            ctx.method_system_exit,
-            ReturnType::Primitive(Primitive::Void),
-            &[]
-        );
-    }
+    // unsafe { // does it make sense to call this on exit?
+    //     let _ = env.call_static_method_unchecked(
+    //         &ctx.main_activity_class,
+    //         ctx.method_system_exit,
+    //         ReturnType::Primitive(Void),
+    //         &[]
+    //     );
+    // }
 }

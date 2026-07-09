@@ -19,5 +19,6 @@ pub struct JniContext {
     pub asset_manager: Global<JObject<'static>>,
     pub method_system_exit: JStaticMethodID,
     pub method_set_surface: JStaticMethodID,
-    pub method_click_position: JStaticMethodID,
+    pub method_process_pointer_event: JStaticMethodID,
+    pub method_request_ui_render: JStaticMethodID,
 }

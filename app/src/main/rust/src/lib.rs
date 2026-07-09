@@ -54,9 +54,10 @@ pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
         let main_activity_class = env.get_object_class(&main_activity).unwrap();
         let xr_input_class = env.get_object_class(&xr_activity_input).unwrap();
 
-        let method_set_surface = env.get_static_method_id(&main_activity_class, jni_str!("setVulkanSurface"), RuntimeMethodSignature::from_str("(Landroid/view/Surface;)V").unwrap().method_signature()).unwrap();
+        let method_set_surface = env.get_static_method_id(&main_activity_class, jni_str!("setVulkanSurface"), RuntimeMethodSignature::from_str("(Landroid/view/Surface;II)V").unwrap().method_signature()).unwrap();
         let method_system_exit = env.get_static_method_id(&main_activity_class, jni_str!("performSystemExit"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
-        let method_click_position = env.get_static_method_id(&xr_input_class, jni_str!("clickScreenAtPosition"), RuntimeMethodSignature::from_str("(FF)V").unwrap().method_signature()).unwrap();
+        let method_process_pointer_event = env.get_static_method_id(&xr_input_class, jni_str!("processPointerEvent"), RuntimeMethodSignature::from_str("(IIFF)V").unwrap().method_signature()).unwrap();
+        let method_request_ui_render = env.get_static_method_id(&main_activity_class, jni_str!("requestUiRender"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
 
         let ctx = Arc::new(JniContext {
             jvm,
@@ -66,7 +67,8 @@ pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
             asset_manager: env.new_global_ref(asset_manager).unwrap(),
             method_system_exit,
             method_set_surface,
-            method_click_position,
+            method_process_pointer_event,
+            method_request_ui_render
         });
 
         let thread_ctx = ctx.clone();

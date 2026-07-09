@@ -45,7 +45,6 @@ pub struct Renderer {
     pool: LazyPool,
     swapchain_queues: Box<[Option<Fence>]>,
     swapchain_rect: xr::Rect2Di,
-
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -148,7 +147,7 @@ impl Renderer {
 
         let swapchain = &mut xr_context.swapchain;
         swapchain.wait_image(xr::Duration::INFINITE).unwrap();
-        let swapchain_queue = graph.finalize().queue_submit(&mut self.pool, xr_context.queue_family_index, 0).unwrap();
+        let swapchain_queue = graph.finalize().queue_submit(&mut self.pool, xr_context.queue_family_index, 0).expect("Failure during render graph finalization");
         swapchain.release_image().unwrap();
         self.swapchain_queues[active_frame.swapchain_image_index as usize] = Some(swapchain_queue);
 

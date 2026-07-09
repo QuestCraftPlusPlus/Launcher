@@ -1,4 +1,5 @@
 import com.android.build.api.dsl.ApplicationExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
@@ -15,7 +16,7 @@ cargo {
 
 configure<ApplicationExtension> {
     namespace = "com.qcxr.questcraft"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.qcxr.questcraft"
@@ -42,8 +43,8 @@ configure<ApplicationExtension> {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -108,17 +109,16 @@ val compileSlangShaders = tasks.register("compileSlangShaders") {
         }
 
         if (isSlangcPresent) {
-            println("Found slangc. Compiling shaders...")
 
             if (shaderDir.exists()) {
                 shaderDir.walkTopDown().forEach { file ->
                     if (file.isFile && file.extension == "slang") {
                         val outputSpv = file.absolutePath.removeSuffix(".slang") + ".spv"
-                        println("Compiling: ${file.name} -> ${file.name.removeSuffix(".slang")}.spv")
 
-                        val compileProcess = ProcessBuilder("slangc", file.absolutePath, "-target", "spirv", "-o", outputSpv)
-                            .inheritIO()
-                            .start()
+                        val compileProcess =
+                            ProcessBuilder("slangc", file.absolutePath, "-target", "spirv", "-o", outputSpv)
+                                .inheritIO()
+                                .start()
 
                         val exitCode = compileProcess.waitFor()
                         if (exitCode != 0) {
@@ -132,15 +132,9 @@ val compileSlangShaders = tasks.register("compileSlangShaders") {
         }
     }
 }
-android {
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    buildFeatures {
-        compose = true
-    }
-    kotlinOptions {
-        jvmTarget = "11"
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_21
     }
 }

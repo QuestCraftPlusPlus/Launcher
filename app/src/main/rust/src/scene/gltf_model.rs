@@ -21,6 +21,9 @@ pub struct GltfPrimitive {
     pub index_buffer: Arc<Buffer>,
     pub index_count: u32,
     pub material_index: Option<usize>,
+
+    pub cpu_vertex_buffer: Option<Vec<Vertex>>,
+    pub cpu_index_buffer: Option<Vec<u32>>,
 }
 
 pub struct GltfMesh {
@@ -71,15 +74,15 @@ struct PushConstants {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Vertex {
-    position: [f32; 3],
-    uv: [f32; 2],
-    normal: [f32; 3],
-    tangent: [f32; 3],
-    bitangent: [f32; 3],
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
+    pub normal: [f32; 3],
+    pub tangent: [f32; 3],
+    pub bitangent: [f32; 3],
 }
 
 #[derive(Debug, Deserialize)]
-struct Extras {
+pub struct Extras {
     #[serde(rename = "is_ui_surface")]
     pub is_ui_surface: Option<i32>,
     #[serde(rename = "is_spawnpoint")]
@@ -88,10 +91,10 @@ struct Extras {
 
 impl GltfScene {
     pub fn record(&self, graph: &mut Graph,  camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode) {
-        self.record_with_transform(graph, camera_ubo, swapchain_image, depth_image, Mat4::IDENTITY);
+        self.record_with_transform(graph, camera_ubo, swapchain_image, depth_image, &Mat4::IDENTITY);
     }
 
-    pub fn record_with_transform(&self, graph: &mut Graph, camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode, transform: Mat4) {
+    pub fn record_with_transform(&self, graph: &mut Graph, camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode, transform: &Mat4) {
         let mut flat_draw_calls = Vec::new();
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
@@ -315,6 +318,20 @@ impl GltfScene {
         }
 
         for mesh in document.meshes() {
+            let mut extras = None;
+            if let Some(raw_extras) = mesh.extras() {
+                if let Ok(ui_props) = serde_json::from_str::<Extras>(raw_extras.get()) {
+                    extras = Some(ui_props);
+                }
+            }
+            let store_cpu_side_data = {
+                if let Some(extras) = extras && extras.is_ui_surface.map_or(false, |val| val == 1) {
+                    true
+                } else {
+                    false
+                }
+            };
+
             let mut prims = Vec::new();
             for prim in mesh.primitives() {
                 let reader = prim.reader(|buffer| Some(&buffers[buffer.index()]));
@@ -366,7 +383,14 @@ impl GltfScene {
                 let material_index = prim.material().index();
                 let vertex_buffer = Arc::new(Buffer::create_from_slice(&device, BufferUsageFlags::VERTEX_BUFFER, bytemuck::cast_slice(&vertices)).unwrap());
                 let index_buffer = Arc::new(Buffer::create_from_slice(&device, BufferUsageFlags::INDEX_BUFFER, bytemuck::cast_slice(&indices)).unwrap());
-                prims.push(GltfPrimitive { vertex_buffer, index_buffer, index_count: indices.len() as u32, material_index });
+                prims.push(GltfPrimitive {
+                    vertex_buffer,
+                    index_buffer,
+                    index_count: indices.len() as u32,
+                    material_index,
+                    cpu_vertex_buffer: if store_cpu_side_data { Some(vertices) } else { None },
+                    cpu_index_buffer: if store_cpu_side_data { Some(indices) } else { None },
+                });
             }
 
             scene.meshes.push(GltfMesh { name: mesh.name().unwrap_or("unnamed").to_string(), primitives: prims });
@@ -459,6 +483,17 @@ impl GltfScene {
             if let Some(extras) = self.node_extras.get(&idx) {
                 if extras.is_spawnpoint == Some(1) {
                     return Some(self.nodes[idx].global_transform)
+                }
+            }
+            None
+        })
+    }
+
+    pub fn find_surface_index(&self) -> Option<NodeIndex> {
+        self.specials.iter().find_map(|&idx| {
+            if let Some(extras) = self.node_extras.get(&idx) {
+                if extras.is_ui_surface == Some(1) {
+                    return Some(idx)
                 }
             }
             None
