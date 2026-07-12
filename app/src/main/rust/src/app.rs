@@ -308,6 +308,9 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, surface_transform);
             }
+            if let Some(ref transform) = pointer_transform {
+                scene.record_pointer(graph, draw_payload, transform);
+            }
             if let Some(ref transform) = inputs.right_hand_matrix {
                 let transform = stage_to_world * transform;
                 let mut ray_transform = None;
@@ -334,9 +337,6 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 }
 
                 scene.record_controller(graph, draw_payload, &transform, ray_transform);
-            }
-            if let Some(ref transform) = pointer_transform {
-                scene.record_pointer(graph, draw_payload, transform);
             }
         });
         if result.is_err() {
