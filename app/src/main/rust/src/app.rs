@@ -228,6 +228,10 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let right_eye_rot: mint::Quaternion<f32> = views[1].pose.orientation.into();
         let head_rotation = <mint::Quaternion<f32> as Into<Quat>>::into(left_eye_rot.into()).slerp(right_eye_rot.into(), 0.5);
 
+        let left_eye_pos: mint::Vector3<f32> = views[0].pose.position.into();
+        let right_eye_pos: mint::Vector3<f32> = views[1].pose.position.into();
+        let eye_pos = (<mint::Vector3<f32> as Into<Vec3>>::into(left_eye_pos.into()) + <mint::Vector3<f32> as Into<Vec3>>::into(right_eye_pos.into())) * 0.5;
+
         stage.move_relative(inputs.movement, head_rotation, delta_time);
 
         let surface_texture = surface.update_texture(context.instance.device.clone(), &context.instance.android_hardware_buffer);
@@ -237,11 +241,13 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
         let world_to_stage = stage.world_to_stage_matrix();
         let stage_to_world = world_to_stage.inverse();
+        let eye_pos = stage_to_world.transform_point3(eye_pos);
 
         let mut pointer_transform = None;
 
         if let Some(ref transform) = inputs.right_hand_matrix {
-            let hit = surface_manager.raycast_uv(stage_to_world * transform, surface_transform, -Vec3::Z);
+            let transform = stage_to_world * transform * Mat4::from_translation(Vec3::new(0.0,0.0,0.127));
+            let hit = surface_manager.raycast_uv(transform, surface_transform, -Vec3::Z);
             if let Some(hit) = hit {
                 let uv = hit.uv;
 
@@ -297,14 +303,37 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             scene.record(graph, draw_payload);
             if let Some(ref transform) = inputs.left_hand_matrix {
                 let transform = stage_to_world * transform;
-                scene.record_controller(graph, draw_payload, &transform);
-            }
-            if let Some(ref transform) = inputs.right_hand_matrix {
-                let transform = stage_to_world * transform;
-                scene.record_controller(graph, draw_payload, &transform);
+                scene.record_controller(graph, draw_payload, &transform, None);
             }
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, surface_transform);
+            }
+            if let Some(ref transform) = inputs.right_hand_matrix {
+                let transform = stage_to_world * transform;
+                let mut ray_transform = None;
+                if pointer_transform.is_some() {
+                    let controller_pos = transform.transform_point3(Vec3::ZERO);
+                    let controller_forward = transform.transform_vector3(-Vec3::Z).normalize();
+
+                    let look_rot = Quat::from_rotation_arc_colinear(-Vec3::Z, controller_forward);
+
+                    let current_up = look_rot * Vec3::Y;
+
+                    let to_view = (eye_pos - controller_pos).normalize();
+                    let target_up = controller_forward.cross(to_view).cross(controller_forward).normalize();
+
+                    let twist_rot = Quat::from_rotation_arc(current_up, target_up);
+                    let final_rotation = twist_rot * look_rot;
+                    let (scale, _, _) = transform.to_scale_rotation_translation();
+
+                    ray_transform = Some(Mat4::from_scale_rotation_translation(
+                        scale,
+                        final_rotation,
+                        controller_pos
+                    ));
+                }
+
+                scene.record_controller(graph, draw_payload, &transform, ray_transform);
             }
             if let Some(ref transform) = pointer_transform {
                 scene.record_pointer(graph, draw_payload, transform);

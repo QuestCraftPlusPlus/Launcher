@@ -15,6 +15,7 @@ use crate::scene::gltf_model::NodeIndex;
 pub struct Assets {
     pub gltf_scene: Arc<gltf_model::GltfScene>,
     controller_scene: Arc<gltf_model::GltfScene>,
+    ray_scene: Arc<gltf_model::GltfScene>,
     pointer_scene: Arc<gltf_model::GltfScene>,
 }
 
@@ -228,13 +229,18 @@ impl Scene {
 
 
         let simple_gltf_scene = {
-            let asset = asset_manager.open(c"meshes/test.glb").expect("Failed to load 'test.glb'");
+            let asset = asset_manager.open(c"meshes/scene.glb").expect("Failed to load 'scene.glb'");
             Arc::new(gltf_model::GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone()))
         };
 
         let controller_scene = {
             let asset = asset_manager.open(c"meshes/controller.glb").expect("Failed to load 'controller.glb'");
             Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_pipeline.clone()))
+        };
+
+        let ray_scene = {
+            let asset = asset_manager.open(c"meshes/ray.glb").expect("Failed to load 'ray.glb'");
+            Arc::new(gltf_model::GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone()))
         };
 
         let pointer_scene = {
@@ -260,6 +266,7 @@ impl Scene {
         let assets = Assets {
             gltf_scene: simple_gltf_scene,
             controller_scene,
+            ray_scene,
             pointer_scene,
         };
         Scene {
@@ -273,8 +280,11 @@ impl Scene {
         self.assets.gltf_scene.record(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image);
     }
 
-    pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, controller_matrix: &Mat4) {
+    pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, controller_matrix: &Mat4, ray_transform: Option<Mat4>) {
         self.assets.controller_scene.record_with_transform(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, controller_matrix);
+        if let Some(ray_transform) = ray_transform {
+            self.assets.ray_scene.record_with_transform(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, &ray_transform);
+        }
     }
 
     pub fn record_pointer(&self, graph: &mut Graph, draw_payload: &DrawPayload, pointer_matrix: &Mat4) {
