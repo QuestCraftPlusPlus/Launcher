@@ -235,7 +235,7 @@ impl Scene {
 
         let controller_scene = {
             let asset = asset_manager.open(c"meshes/controller.glb").expect("Failed to load 'controller.glb'");
-            Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_pipeline.clone()))
+            Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone()))
         };
 
         let ray_scene = {

@@ -25,7 +25,6 @@ pub struct InputState {
     spaces: Spaces,
 }
 
-
 /// (note) if you need any new inputs, put them here and extract them in InputState::extract
 pub struct ExtractedInputs {
     pub movement: [f32; 3], // world-space (i.e., needs to be transformed into camera-relative before it's really useful)

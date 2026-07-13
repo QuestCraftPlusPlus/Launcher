@@ -1,6 +1,6 @@
 use std::thread::sleep;
 use std::time::Duration;
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use jni::signature::Primitive::Void;
 use log::info;
 use ndk_sys::{AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP};
@@ -23,12 +23,13 @@ use {
     },
     jni::{
         Env,
-        signature::{Primitive, ReturnType}
+        signature::{ReturnType}
     },
     ndk::asset::AssetManager,
     ndk_sys::AAssetManager,
     openxr as xr,
 };
+use crate::input::{ExtractedInputs};
 use crate::stage::Stage;
 use crate::render::renderer::{PollError, Renderer, WaitError};
 use crate::scene::scene::Scene;
@@ -143,13 +144,9 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     info!("Hello from main loop!");
     let asset_manager = unsafe { AssetManager::from_ptr(NonNull::new(raw_asset_manager).expect("Null asset manager")) };
 
-    info!("Initializing context...");
     let mut context = XrContext::new(Arc::clone(&ctx));
-    info!("Initializing renderer...");
     let mut renderer = Renderer::new(&context);
-    info!("Initializing input...");
     let input = InputState::new(&context.instance, &context.session.session);
-    info!("Initializing scene...");
     let scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
 
@@ -177,8 +174,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
     let mut old_surface_textures = Vec::new();
     let mut last_surface_texture: Option<Arc<SurfaceTexture>> = None;
-
-    let mut previous_down_state = false;
+    let mut previous_inputs: Option<ExtractedInputs> = None;
 
     info!("Starting!!");
     let mut last_frame_time = Instant::now();
@@ -248,40 +244,17 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         if let Some(ref transform) = inputs.right_hand_matrix {
             let transform = stage_to_world * transform * Mat4::from_translation(Vec3::new(0.0,0.0,0.127));
             let hit = surface_manager.raycast_uv(transform, surface_transform, -Vec3::Z);
+
             if let Some(hit) = hit {
                 let uv = hit.uv;
-
-                let hit_normal = hit.world_normal.normalize();
-                let local_axis = Vec3::Y;
-                let rotation = Quat::from_rotation_arc(local_axis, hit_normal);
                 pointer_transform = Some(Mat4::from_scale_rotation_translation(
                     Vec3::ONE,
-                    rotation,
+                    Quat::from_rotation_arc(Vec3::Y, hit.world_normal.normalize()),
                     hit.world_position
                 ));
 
-                let action = if !previous_down_state && inputs.right_click_state {
-                    previous_down_state = true;
-                    AMOTION_EVENT_ACTION_DOWN
-                } else if previous_down_state && !inputs.right_click_state {
-                    previous_down_state = false;
-                    AMOTION_EVENT_ACTION_UP
-                } else {
-                    AMOTION_EVENT_ACTION_MOVE
-                };
-
-                let pointer_id = jni::sys::jvalue { i: 0 };
-                let action_val = jni::sys::jvalue { i: action as _ };
-                let norm_x = jni::sys::jvalue { f: uv.x };
-                let norm_y = jni::sys::jvalue { f: uv.y };
-
-                unsafe {
-                    env.call_static_method_unchecked(
-                        &ctx.xr_input_class,
-                        &ctx.method_process_pointer_event,
-                        ReturnType::Primitive(Void),
-                        &[pointer_id, action_val, norm_x, norm_y]
-                    ).expect("Failed to process pointer event");
+                if let Some(previous_inputs) = previous_inputs {
+                    publish_inputs_for_pointer(env, &ctx, 0, previous_inputs.right_click_state, inputs.right_click_state, uv);
                 }
             }
         }
@@ -315,25 +288,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 let transform = stage_to_world * transform;
                 let mut ray_transform = None;
                 if pointer_transform.is_some() {
-                    let controller_pos = transform.transform_point3(Vec3::ZERO);
-                    let controller_forward = transform.transform_vector3(-Vec3::Z).normalize();
-
-                    let look_rot = Quat::from_rotation_arc_colinear(-Vec3::Z, controller_forward);
-
-                    let current_up = look_rot * Vec3::Y;
-
-                    let to_view = (eye_pos - controller_pos).normalize();
-                    let target_up = controller_forward.cross(to_view).cross(controller_forward).normalize();
-
-                    let twist_rot = Quat::from_rotation_arc(current_up, target_up);
-                    let final_rotation = twist_rot * look_rot;
-                    let (scale, _, _) = transform.to_scale_rotation_translation();
-
-                    ray_transform = Some(Mat4::from_scale_rotation_translation(
-                        scale,
-                        final_rotation,
-                        controller_pos
-                    ));
+                    ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
                 }
 
                 scene.record_controller(graph, draw_payload, &transform, ray_transform);
@@ -344,6 +299,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             break;
         }
 
+        previous_inputs = Some(inputs);
         if let Some(ref last_surface_texture) = last_surface_texture {
             old_surface_textures.push(Arc::clone(last_surface_texture));
         }
@@ -358,4 +314,66 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     //         &[]
     //     );
     // }
+}
+
+fn publish_inputs_for_pointer(env: &mut Env<'_>, ctx: &JniContext, pointer: i32, previous_click_state: bool, current_click_state: bool, raycast_hit_uv: Vec2) {
+    let pointer_id = jni::sys::jvalue { i: pointer };
+    let action_val = jni::sys::jvalue { i: AMOTION_EVENT_ACTION_MOVE as _ };
+    let norm_x = jni::sys::jvalue { f: raycast_hit_uv.x };
+    let norm_y = jni::sys::jvalue { f: raycast_hit_uv.y };
+
+    unsafe {
+        env.call_static_method_unchecked(
+            &ctx.xr_input_class,
+            &ctx.method_process_pointer_event,
+            ReturnType::Primitive(Void),
+            &[pointer_id, action_val, norm_x, norm_y]
+        ).expect("Failed to process pointer event");
+    }
+
+    let action = if !previous_click_state && current_click_state {
+        Some(AMOTION_EVENT_ACTION_DOWN)
+    } else if previous_click_state && !current_click_state {
+        Some(AMOTION_EVENT_ACTION_UP)
+    } else {
+        None
+    };
+
+    if let Some(action) = action {
+        let pointer_id = jni::sys::jvalue { i: pointer };
+        let action_val = jni::sys::jvalue { i: action as _ };
+        let norm_x = jni::sys::jvalue { f: raycast_hit_uv.x };
+        let norm_y = jni::sys::jvalue { f: raycast_hit_uv.y };
+
+        unsafe {
+            env.call_static_method_unchecked(
+                &ctx.xr_input_class,
+                &ctx.method_process_pointer_event,
+                ReturnType::Primitive(Void),
+                &[pointer_id, action_val, norm_x, norm_y]
+            ).expect("Failed to process pointer event");
+        }
+    }
+}
+
+fn billboard_ray_transform(controller_transform: &Mat4, eye_pos: &Vec3) -> Mat4 {
+    let controller_pos = controller_transform.transform_point3(Vec3::ZERO);
+    let controller_forward = controller_transform.transform_vector3(-Vec3::Z).normalize();
+
+    let look_rot = Quat::from_rotation_arc_colinear(-Vec3::Z, controller_forward);
+
+    let current_up = look_rot * Vec3::Y;
+
+    let to_view = (eye_pos - controller_pos).normalize();
+    let target_up = controller_forward.cross(to_view).cross(controller_forward).normalize();
+
+    let twist_rot = Quat::from_rotation_arc(current_up, target_up);
+    let final_rotation = twist_rot * look_rot;
+    let (scale, _, _) = controller_transform.to_scale_rotation_translation();
+
+    Mat4::from_scale_rotation_translation(
+        scale,
+        final_rotation,
+        controller_pos
+    )
 }
