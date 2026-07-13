@@ -1,7 +1,6 @@
-use glam::Mat4;
-use openxr::Space;
 use {
-    openxr as xr,
+    glam::Mat4,
+    openxr::{self as xr, Space },
 };
 
 pub struct Actions {
@@ -131,7 +130,7 @@ impl InputState {
                     xr::SpaceLocationFlags::POSITION_VALID | xr::SpaceLocationFlags::ORIENTATION_VALID,
                 )
             })
-            .map(|location| crate::xr_util::pose_to_matrix(&location.pose));;
+            .map(|location| crate::xr_util::pose_to_matrix(&location.pose));
         let right_hand_matrix = self.actions.right_pos
             .is_active(session, xr::Path::NULL)
             .ok()
@@ -142,7 +141,7 @@ impl InputState {
                     xr::SpaceLocationFlags::POSITION_VALID | xr::SpaceLocationFlags::ORIENTATION_VALID,
                 )
             })
-            .map(|location| crate::xr_util::pose_to_matrix(&location.pose));;
+            .map(|location| crate::xr_util::pose_to_matrix(&location.pose));
 
         ExtractedInputs {
             movement,

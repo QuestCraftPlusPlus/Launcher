@@ -1,5 +1,7 @@
-use glam::Vec3;
-use openxr as xr;
+use {
+    glam::Vec3,
+    openxr as xr,
+};
 
 pub fn pose_to_matrix(pose: &xr::Posef) -> glam::Mat4 {
     let pos: Vec3 = <mint::Vector3<f32>>::from(pose.position).into();

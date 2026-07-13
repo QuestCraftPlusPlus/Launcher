@@ -1,4 +1,3 @@
-use vk_graph::driver::image::SampleCount;
 use {
     crate::{
         app::XrContext,
@@ -20,7 +19,7 @@ use {
             buffer::BufferInfo,
             device::Device,
             fence::Fence,
-            image::ImageInfo,
+            image::{ImageInfo, SampleCount},
         },
         pool::{
             lazy::LazyPool,

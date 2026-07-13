@@ -1,16 +1,21 @@
-use crate::render::renderer::DrawPayload;
-use crate::scene::gltf_model;
-use glam::{Mat4, Vec3};
-use ndk::asset::AssetManager;
-use std::sync::Arc;
-use vk_graph::driver::ash::vk;
-use vk_graph::driver::ash::vk::{CullModeFlags, PrimitiveTopology};
-use vk_graph::driver::device::Device;
-use vk_graph::driver::graphics::{BlendInfo, GraphicsPipeline, GraphicsPipelineInfo};
-use vk_graph::driver::shader::{SamplerInfoBuilder, Shader};
-use vk_graph::Graph;
-use crate::render::renderer;
-use crate::scene::gltf_model::NodeIndex;
+use {
+    crate::{
+        render::renderer::{self, DrawPayload},
+        scene::gltf_model::{self, NodeIndex},
+    },
+    glam::Mat4,
+    ndk::asset::AssetManager,
+    std::sync::Arc,
+    vk_graph::{
+        Graph,
+        driver::{
+            ash::vk::{self, CullModeFlags, PrimitiveTopology},
+            device::Device,
+            graphics::{BlendInfo, GraphicsPipeline, GraphicsPipelineInfo},
+            shader::{SamplerInfoBuilder, Shader}
+        },
+    }
+};
 
 pub struct Assets {
     pub gltf_scene: Arc<gltf_model::GltfScene>,

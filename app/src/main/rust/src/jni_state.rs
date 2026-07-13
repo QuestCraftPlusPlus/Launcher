@@ -1,11 +1,13 @@
-use std::sync::atomic::AtomicBool;
-use jni::{
-    JavaVM,
-    refs::Global,
-    objects::{
-        JObject,
-        JClass,
-        JStaticMethodID
+use {
+    std::sync::atomic::AtomicBool,
+    jni::{
+        JavaVM,
+        refs::Global,
+        objects::{
+            JObject,
+            JClass,
+            JStaticMethodID
+        }
     }
 };
 

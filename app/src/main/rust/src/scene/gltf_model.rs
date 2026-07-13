@@ -1,20 +1,23 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use bytemuck::{bytes_of, Pod, Zeroable};
-use glam::Mat4;
-use gltf::image::Format;
-use gltf::Node;
-use log::{info};
-use serde::Deserialize;
-use vk_graph::driver::ash::vk::{BufferUsageFlags, IndexType};
-use vk_graph::driver::buffer::Buffer;
-use vk_graph::driver::device::Device;
-use vk_graph::driver::graphics::{DepthStencilInfo, GraphicsPipeline};
-use vk_graph::driver::sync::AccessType;
-use vk_graph::{Graph, LoadOp, StoreOp};
-use vk_graph::driver::ash::vk;
-use vk_graph::driver::image::{Image, ImageInfoBuilder};
-use vk_graph::pool::hash::HashPool;
+use {
+    std::{collections::HashMap, sync::Arc},
+    bytemuck::{bytes_of, Pod, Zeroable},
+    glam::Mat4,
+    gltf::{image::Format, Node},
+    log::info,
+    serde::Deserialize,
+    vk_graph::{
+        driver::{
+            ash::vk::{self, BufferUsageFlags, IndexType},
+            buffer::Buffer,
+            device::Device,
+            graphics::{DepthStencilInfo, GraphicsPipeline},
+            sync::AccessType,
+            image::{Image, ImageInfoBuilder},
+        },
+        Graph, LoadOp, StoreOp,
+        pool::hash::HashPool,
+    }
+};
 
 pub struct GltfPrimitive {
     pub vertex_buffer: Arc<Buffer>,

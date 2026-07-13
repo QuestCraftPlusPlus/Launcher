@@ -1,39 +1,33 @@
-use std::thread::sleep;
-use std::time::Duration;
-use glam::{Mat4, Quat, Vec2, Vec3};
-use jni::signature::Primitive::Void;
-use log::info;
-use ndk_sys::{AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP};
-use openxr::{EnvironmentBlendMode, FrameState, ViewConfigurationType};
-use vk_graph::driver::ash::vk;
 use {
     std::{
-        time::Instant,
+        time::{Instant, Duration},
         ptr::NonNull,
-        sync::{
-            atomic::Ordering,
-            Arc,
-        }
+        sync::{atomic::Ordering, Arc},
+        thread::sleep,
     },
     crate::{
         jni_state::{self, JniContext},
-        render::{renderer, Swapchain},
-        input::{InputState},
+        render::{
+            renderer::{self, PollError, Renderer, WaitError},
+            Swapchain
+        },
+        stage::Stage,
+        scene::scene::Scene,
+        input::{InputState, ExtractedInputs},
         instance::XrInstance,
+        surface::{Surface, SurfaceManager, SurfaceTexture}
     },
     jni::{
         Env,
-        signature::{ReturnType}
+        signature::{ReturnType,Primitive::Void}
     },
+    glam::{Mat4, Quat, Vec2, Vec3},
     ndk::asset::AssetManager,
-    ndk_sys::AAssetManager,
-    openxr as xr,
+    ndk_sys::{AAssetManager, AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP},
+    openxr::{self as xr, EnvironmentBlendMode, FrameState, ViewConfigurationType},
+    vk_graph::driver::ash::vk,
+    log::info,
 };
-use crate::input::{ExtractedInputs};
-use crate::stage::Stage;
-use crate::render::renderer::{PollError, Renderer, WaitError};
-use crate::scene::scene::Scene;
-use crate::surface::{Surface, SurfaceManager, SurfaceTexture};
 
 pub struct XrSession {
     pub(crate) running: bool,

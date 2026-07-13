@@ -1,6 +1,6 @@
-use vk_graph::driver::image::SampleCount;
 use {
     super::XrInstance,
+    super::renderer::{self, AcquireError},
     openxr as xr,
     std::{
         ops::{Deref, DerefMut},
@@ -11,8 +11,6 @@ use {
         image::{Image, ImageInfo},
     },
 };
-use crate::render::renderer;
-use crate::render::renderer::AcquireError;
 
 pub struct Swapchain {
     images: Vec<Arc<Image>>,

@@ -1,9 +1,11 @@
 #![cfg(target_os = "android")]
 extern crate jni;
 
-use std::{sync::atomic::Ordering, sync::Arc, thread};
-use jni::{jni_str, objects::JObject, signature::RuntimeMethodSignature, EnvUnowned};
-use crate::jni_state::JniContext;
+use {
+    std::{sync::atomic::Ordering, sync::Arc, thread},
+    jni::{jni_str, objects::JObject, signature::RuntimeMethodSignature, EnvUnowned},
+    crate::jni_state::JniContext,
+};
 
 mod jni_state;
 mod app;

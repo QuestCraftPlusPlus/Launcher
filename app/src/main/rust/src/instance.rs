@@ -1,34 +1,25 @@
-use std::env::var;
-use std::ffi::CStr;
-use std::io::{stderr, IsTerminal};
-use std::process::{abort, id};
-use std::slice;
-use std::sync::Arc;
-use std::thread::{current, panicking, park};
-use log::{info, logger, warn, Level, Metadata};
-use vk_graph::driver::ash::ext;
-use vk_graph::driver::ash::vk::{ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_NAME, KHR_EXTERNAL_MEMORY_NAME};
-use vk_graph::driver::DriverError;
 use {
-    log::{debug, error},
+    log::{info, debug, error},
     openxr as xr,
     std::{
         ffi::{c_void, c_char},
         fmt::{Debug, Formatter},
         mem::transmute,
-        ops::Deref
+        ops::Deref,
+        slice,
+        sync::Arc
     },
     vk_graph::driver::{
         ash::{
             self,
-            vk::{self, Handle as _},
+            vk::{self, Handle as _, ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_NAME, KHR_EXTERNAL_MEMORY_NAME},
         },
         device::Device,
         instance::Instance,
         physical_device::PhysicalDevice,
     },
+    crate::jni_state::JniContext,
 };
-use crate::jni_state::JniContext;
 
 pub struct XrInstance {
     pub device: Arc<Device>,

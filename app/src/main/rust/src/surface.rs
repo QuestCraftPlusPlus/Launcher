@@ -1,22 +1,26 @@
-use std::sync::Arc;
-use bytemuck::{bytes_of, Zeroable, Pod};
-use glam::{Mat4, Vec2, Vec3};
-use jni::objects::JObject;
-use jni::Env;
-use jni::refs::Global;
-use ndk::asset::AssetManager;
-use ndk_sys::{media_status_t, AHardwareBuffer, AHardwareBuffer_acquire, AHardwareBuffer_release, AImageReader, AImageReader_acquireLatestImage, AImageReader_delete, AImageReader_getWindow, AImageReader_newWithUsage, AImage_delete, AImage_getHardwareBuffer, ANativeWindow_toSurface};
-use vk_graph::driver::ash::vk;
-use vk_graph::driver::ash::vk::{Format, ImageViewType, IndexType, PrimitiveTopology};
-use vk_graph::driver::device::Device;
-use vk_graph::driver::graphics::{DepthStencilInfo, GraphicsPipeline, GraphicsPipelineInfo};
-use vk_graph::driver::image::{Image, ImageInfo, ImageViewInfo, ImageViewInfoBuilder, SampleCount};
-use vk_graph::driver::shader::{SamplerInfoBuilder, Shader};
-use vk_graph::driver::sync::AccessType;
-use vk_graph::{Graph, LoadOp, StoreOp};
-use crate::render::renderer;
-use crate::scene::gltf_model;
-use crate::scene::gltf_model::GltfPrimitive;
+use {
+    crate::{
+        render::renderer,
+        scene::gltf_model::{self, GltfPrimitive}
+    },
+    bytemuck::{Pod, Zeroable, bytes_of},
+    glam::{Mat4, Vec2, Vec3},
+    jni::{Env, objects::JObject, refs::Global},
+    ndk::asset::AssetManager,
+    ndk_sys::{AHardwareBuffer, AHardwareBuffer_acquire, AHardwareBuffer_release, AImageReader, AImageReader_acquireLatestImage, AImageReader_delete, AImageReader_getWindow, AImageReader_newWithUsage, AImage_delete, AImage_getHardwareBuffer, ANativeWindow_toSurface, media_status_t},
+    std::sync::Arc,
+    vk_graph::{
+        driver::{
+            ash::vk::{self, Format, ImageViewType, IndexType, PrimitiveTopology},
+            device::Device,
+            graphics::{DepthStencilInfo, GraphicsPipeline, GraphicsPipelineInfo},
+            image::{Image, ImageInfo, ImageViewInfoBuilder, SampleCount},
+            shader::{SamplerInfoBuilder, Shader},
+            sync::AccessType
+        },
+        Graph, LoadOp, StoreOp
+    }
+};
 
 pub struct SurfaceTexture {
     pub image: Arc<Image>,
