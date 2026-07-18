@@ -24,14 +24,27 @@ pub struct InputState {
     spaces: Spaces,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct HandedInputState {
+    pub hand: Hand,
+    pub click: bool,
+    pub matrix: Option<Mat4>
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[repr(i32)]
+pub enum Hand {
+    Left,
+    Right
+}
+
 /// (note) if you need any new inputs, put them here and extract them in InputState::extract
+#[derive(Debug, Copy, Clone)]
 pub struct ExtractedInputs {
     pub movement: [f32; 3], // world-space (i.e., needs to be transformed into camera-relative before it's really useful)
-    pub left_click_state: bool,
-    pub right_click_state: bool,
 
-    pub left_hand_matrix: Option<Mat4>,
-    pub right_hand_matrix: Option<Mat4>,
+    pub left: HandedInputState,
+    pub right: HandedInputState,
 }
 
 impl InputState {
@@ -145,10 +158,16 @@ impl InputState {
 
         ExtractedInputs {
             movement,
-            left_click_state,
-            right_click_state,
-            left_hand_matrix,
-            right_hand_matrix,
+            left: HandedInputState {
+                hand: Hand::Left,
+                click: left_click_state,
+                matrix: left_hand_matrix,
+            },
+            right: HandedInputState {
+                hand: Hand::Right,
+                click: right_click_state,
+                matrix: right_hand_matrix,
+            },
         }
     }
 }

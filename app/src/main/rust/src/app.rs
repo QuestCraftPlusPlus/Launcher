@@ -28,6 +28,7 @@ use {
     vk_graph::driver::ash::vk,
     log::info,
 };
+use crate::input::Hand;
 
 pub struct XrSession {
     pub(crate) running: bool,
@@ -162,6 +163,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let mut old_surface_textures = Vec::new();
     let mut last_surface_texture: Option<Arc<SurfaceTexture>> = None;
     let mut previous_inputs: Option<ExtractedInputs> = None;
+    let mut primary_hand = Hand::Right;
 
     info!("Starting!!");
     let mut last_frame_time = Instant::now();
@@ -219,9 +221,30 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let stage_to_world = world_to_stage.inverse();
         let eye_pos = stage_to_world.transform_point3(eye_pos);
 
+        if inputs.right.click && primary_hand != Hand::Right {
+            primary_hand = Hand::Right;
+            previous_inputs = None;
+        }
+        if inputs.left.click && primary_hand != Hand::Left {
+            primary_hand = Hand::Left;
+            previous_inputs = None;
+        }
+
+        let hand_inputs = if primary_hand == Hand::Right {
+            inputs.right
+        } else  {
+            inputs.left
+        };
+        let previous_hand_inputs = previous_inputs.map(|inputs| {
+            if primary_hand == Hand::Right {
+                inputs.right
+            } else {
+                inputs.left
+            }
+        });
         let mut pointer_transform = None;
 
-        if let Some(ref transform) = inputs.right_hand_matrix {
+        if let Some(ref transform) = hand_inputs.matrix {
             let transform = stage_to_world * transform * Mat4::from_translation(Vec3::new(0.0,0.0,0.127));
             let hit = surface_manager.raycast_uv(transform, surface_transform, -Vec3::Z);
 
@@ -233,8 +256,8 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                     hit.world_position
                 ));
 
-                if let Some(previous_inputs) = previous_inputs {
-                    publish_inputs_for_pointer(env, &ctx, 0, previous_inputs.right_click_state, inputs.right_click_state, uv);
+                if let Some(previous_hand_inputs) = previous_hand_inputs {
+                    publish_inputs_for_pointer(env, &ctx, 0, previous_hand_inputs.click, hand_inputs.click, uv);
                 }
             }
         }
@@ -254,23 +277,30 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
-            if let Some(ref transform) = inputs.left_hand_matrix {
-                let transform = stage_to_world * transform;
-                scene.record_controller(graph, draw_payload, &transform, None);
-            }
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, surface_transform);
             }
             if let Some(ref transform) = pointer_transform {
                 scene.record_pointer(graph, draw_payload, transform);
             }
-            if let Some(ref transform) = inputs.right_hand_matrix {
+            if let Some(ref transform) = inputs.left.matrix {
                 let transform = stage_to_world * transform;
                 let mut ray_transform = None;
-                if pointer_transform.is_some() {
-                    ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
+                if primary_hand == Hand::Left {
+                    if pointer_transform.is_some() {
+                        ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
+                    }
                 }
-
+                scene.record_controller(graph, draw_payload, &transform, ray_transform);
+            }
+            if let Some(ref transform) = inputs.right.matrix {
+                let transform = stage_to_world * transform;
+                let mut ray_transform = None;
+                if primary_hand == Hand::Right {
+                    if pointer_transform.is_some() {
+                        ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
+                    }
+                }
                 scene.record_controller(graph, draw_payload, &transform, ray_transform);
             }
         });
