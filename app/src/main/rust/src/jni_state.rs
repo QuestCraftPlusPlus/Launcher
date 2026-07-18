@@ -1,30 +1,29 @@
-use std::sync::Arc;
-use glam::Vec2;
-use jni::{jni_str, Env};
-use jni::signature::Primitive::Void;
-use jni::signature::{ReturnType, RuntimeMethodSignature};
-use ndk_sys::{_bindgen_ty_22, AMOTION_EVENT_ACTION_MOVE};
 use {
-    std::sync::atomic::AtomicBool,
+    crate::surface::Surface,
+    ndk_sys::_bindgen_ty_22,
     jni::{
-        JavaVM,
-        refs::Global,
+        JavaVM, Env, jni_str,
         objects::{
-            JObject,
             JClass,
-            JStaticMethodID
-        }
-    }
+            JObject,
+            JStaticMethodID,
+        },
+        refs::Global,
+        signature::{
+            Primitive::Void,
+            ReturnType, RuntimeMethodSignature
+        },
+    },
+    glam::Vec2,
+    std::sync::atomic::AtomicBool
 };
-use crate::surface::Surface;
 
 pub static SHOULD_STOP_JNI: AtomicBool = AtomicBool::new(false);
 
 pub struct JniContext {
     pub jvm: JavaVM,
     pub main_activity: Global<JObject<'static>>,
-    pub main_activity_class: Global<JClass<'static>>,
-    pub xr_input_class: Global<JClass<'static>>,
+    pub jni_bridge_class: Global<JClass<'static>>,
     pub asset_manager: Global<JObject<'static>>,
     method_system_exit: JStaticMethodID,
     method_set_surface: JStaticMethodID,
@@ -33,20 +32,18 @@ pub struct JniContext {
 }
 
 impl JniContext {
-    pub fn new(env: &mut Env<'_>, jvm: JavaVM, main_activity: &JObject, xr_activity_input: &JObject, asset_manager: &JObject) -> Self {
-        let main_activity_class = env.get_object_class(&main_activity).unwrap();
-        let xr_input_class = env.get_object_class(&xr_activity_input).unwrap();
+    pub fn new(env: &mut Env<'_>, jvm: JavaVM, main_activity: &JObject, asset_manager: &JObject) -> Self {
+        let jni_bridge_class = env.find_class(jni_str!("com/qcxr/questcraft/JniBridge")).unwrap();
 
-        let method_set_surface = env.get_static_method_id(&main_activity_class, jni_str!("setVulkanSurface"), RuntimeMethodSignature::from_str("(Landroid/view/Surface;II)V").unwrap().method_signature()).unwrap();
-        let method_system_exit = env.get_static_method_id(&main_activity_class, jni_str!("performSystemExit"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
-        let method_process_pointer_event = env.get_static_method_id(&xr_input_class, jni_str!("processPointerEvent"), RuntimeMethodSignature::from_str("(IIFF)V").unwrap().method_signature()).unwrap();
-        let method_request_ui_render = env.get_static_method_id(&main_activity_class, jni_str!("requestUiRender"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
+        let method_set_surface = env.get_static_method_id(&jni_bridge_class, jni_str!("setVulkanSurface"), RuntimeMethodSignature::from_str("(Landroid/view/Surface;II)V").unwrap().method_signature()).unwrap();
+        let method_system_exit = env.get_static_method_id(&jni_bridge_class, jni_str!("performSystemExit"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
+        let method_process_pointer_event = env.get_static_method_id(&jni_bridge_class, jni_str!("processPointerEvent"), RuntimeMethodSignature::from_str("(IIFF)V").unwrap().method_signature()).unwrap();
+        let method_request_ui_render = env.get_static_method_id(&jni_bridge_class, jni_str!("requestUiRender"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
 
         JniContext {
             jvm,
             main_activity: env.new_global_ref(main_activity).unwrap(),
-            main_activity_class: env.new_global_ref(main_activity_class).unwrap(),
-            xr_input_class: env.new_global_ref(xr_input_class).unwrap(),
+            jni_bridge_class: env.new_global_ref(jni_bridge_class).unwrap(),
             asset_manager: env.new_global_ref(asset_manager).unwrap(),
             method_system_exit,
             method_set_surface,
@@ -58,7 +55,7 @@ impl JniContext {
     pub fn system_exit(&self, env: &mut Env<'_>) {
         unsafe {
             let _ = env.call_static_method_unchecked(
-                &self.main_activity_class,
+                &self.jni_bridge_class,
                 self.method_system_exit,
                 ReturnType::Primitive(Void),
                 &[]
@@ -69,7 +66,7 @@ impl JniContext {
     pub fn request_ui_render(&self, env: &mut Env<'_>) {
         unsafe {
             let _ = env.call_static_method_unchecked(
-                &self.main_activity_class,
+                &self.jni_bridge_class,
                 self.method_request_ui_render,
                 ReturnType::Primitive(Void),
                 &[],
@@ -82,9 +79,12 @@ impl JniContext {
         let width = jni::sys::jvalue { i: surface.extent.width as _ };
         let height = jni::sys::jvalue { i: surface.extent.height as _ };
         unsafe {
-            env.call_static_method_unchecked(&self.main_activity_class, self.method_set_surface, ReturnType::Primitive(Void), &[
-                java_surface, width, height
-            ]).expect("Failed to set surface");
+            env.call_static_method_unchecked(
+                &self.jni_bridge_class,
+                self.method_set_surface,
+                ReturnType::Primitive(Void),
+                &[java_surface, width, height]
+            ).expect("Failed to set surface");
         }
     }
 
@@ -96,7 +96,7 @@ impl JniContext {
 
         unsafe {
             env.call_static_method_unchecked(
-                &self.xr_input_class,
+                &self.jni_bridge_class,
                 &self.method_process_pointer_event,
                 ReturnType::Primitive(Void),
                 &[pointer_id, action_val, norm_x, norm_y]

@@ -1,9 +1,10 @@
 #![cfg(target_os = "android")]
 extern crate jni;
 
+use jni::objects::JClass;
 use {
     std::{sync::atomic::Ordering, sync::Arc, thread},
-    jni::{jni_str, objects::JObject, signature::RuntimeMethodSignature, EnvUnowned},
+    jni::{objects::JObject, EnvUnowned, jni_mangle},
     crate::jni_state::JniContext,
 };
 
@@ -17,12 +18,11 @@ mod stage;
 mod xr_util;
 mod surface;
 
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
+#[jni_mangle("com.qcxr.questcraft.JniBridge")]
+pub fn start<'local>(
     mut unowned_env: EnvUnowned<'local>,
+    _: JClass<'local>,
     main_activity: JObject<'local>,
-    xr_activity_input: JObject<'local>,
     asset_manager: JObject<'local>
 ) {
     android_logger::init_once(
@@ -52,8 +52,8 @@ pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
     unowned_env.with_env(|env| -> jni::errors::Result<_> {
         log::info!("Owned the env");
         let jvm = env.get_java_vm().unwrap();
-        
-        let ctx = Arc::new(JniContext::new(env, jvm, &main_activity, &xr_activity_input, &asset_manager));
+
+        let ctx = Arc::new(JniContext::new(env, jvm, &main_activity, &asset_manager));
 
         let thread_ctx = ctx.clone();
         thread::Builder::new().name("rustrenderthread".to_string()).spawn(move || {
@@ -73,9 +73,8 @@ pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
     }).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }
 
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_stop(
+#[jni_mangle("com.qcxr.questcraft.JniBridge")]
+pub fn stop(
     mut _unowned_env: EnvUnowned,
 ) {
     jni_state::SHOULD_STOP_JNI.store(true, Ordering::Relaxed);
