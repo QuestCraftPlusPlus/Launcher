@@ -145,14 +145,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     // if you're looking how to load assets n shit, it's in the scene ^^
 
     let mut surface = Surface::new(env, 1920, 1080);
-    let java_surface = jni::sys::jvalue { l: surface.java_surface.as_raw() };
-    let width = jni::sys::jvalue { i: 1920 };
-    let height = jni::sys::jvalue { i: 1080 };
-    unsafe {
-        env.call_static_method_unchecked(&ctx.main_activity_class, ctx.method_set_surface, ReturnType::Primitive(Void), &[
-            java_surface, width, height
-        ]).expect("Failed to set surface");
-    }
+    ctx.set_surface(env, &surface);
 
     let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
     let surface_node = &scene.assets.gltf_scene.nodes[surface_index];
@@ -197,14 +190,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             Arc::strong_count(&texture.image) > 1
         });
 
-        unsafe {
-            let _ = env.call_static_method_unchecked(
-                &ctx.main_activity_class,
-                ctx.method_request_ui_render,
-                ReturnType::Primitive(Void),
-                &[],
-            );
-        } // hope to fuck this finishes before we need the texture
+        ctx.request_ui_render(env); // hope to fuck this finishes before we need the texture
 
         let inputs = input.extract(&context.session.session, &context.stage, active_frame.predicted_display_time);
 
@@ -300,30 +286,11 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     }
     info!("Exiting...");
 
-    // unsafe { // does it make sense to call this on exit?
-    //     let _ = env.call_static_method_unchecked(
-    //         &ctx.main_activity_class,
-    //         ctx.method_system_exit,
-    //         ReturnType::Primitive(Void),
-    //         &[]
-    //     );
-    // }
+    // ctx.system_exit(env);
 }
 
 fn publish_inputs_for_pointer(env: &mut Env<'_>, ctx: &JniContext, pointer: i32, previous_click_state: bool, current_click_state: bool, raycast_hit_uv: Vec2) {
-    let pointer_id = jni::sys::jvalue { i: pointer };
-    let action_val = jni::sys::jvalue { i: AMOTION_EVENT_ACTION_MOVE as _ };
-    let norm_x = jni::sys::jvalue { f: raycast_hit_uv.x };
-    let norm_y = jni::sys::jvalue { f: raycast_hit_uv.y };
-
-    unsafe {
-        env.call_static_method_unchecked(
-            &ctx.xr_input_class,
-            &ctx.method_process_pointer_event,
-            ReturnType::Primitive(Void),
-            &[pointer_id, action_val, norm_x, norm_y]
-        ).expect("Failed to process pointer event");
-    }
+    ctx.process_pointer_event(env, pointer, AMOTION_EVENT_ACTION_MOVE, raycast_hit_uv);
 
     let action = if !previous_click_state && current_click_state {
         Some(AMOTION_EVENT_ACTION_DOWN)
@@ -334,19 +301,7 @@ fn publish_inputs_for_pointer(env: &mut Env<'_>, ctx: &JniContext, pointer: i32,
     };
 
     if let Some(action) = action {
-        let pointer_id = jni::sys::jvalue { i: pointer };
-        let action_val = jni::sys::jvalue { i: action as _ };
-        let norm_x = jni::sys::jvalue { f: raycast_hit_uv.x };
-        let norm_y = jni::sys::jvalue { f: raycast_hit_uv.y };
-
-        unsafe {
-            env.call_static_method_unchecked(
-                &ctx.xr_input_class,
-                &ctx.method_process_pointer_event,
-                ReturnType::Primitive(Void),
-                &[pointer_id, action_val, norm_x, norm_y]
-            ).expect("Failed to process pointer event");
-        }
+        ctx.process_pointer_event(env, pointer, action, raycast_hit_uv);
     }
 }
 
