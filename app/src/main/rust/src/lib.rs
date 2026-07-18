@@ -52,26 +52,8 @@ pub extern "C" fn Java_com_qcxr_questcraft_MainActivity_start<'local>(
     unowned_env.with_env(|env| -> jni::errors::Result<_> {
         log::info!("Owned the env");
         let jvm = env.get_java_vm().unwrap();
-
-        let main_activity_class = env.get_object_class(&main_activity).unwrap();
-        let xr_input_class = env.get_object_class(&xr_activity_input).unwrap();
-
-        let method_set_surface = env.get_static_method_id(&main_activity_class, jni_str!("setVulkanSurface"), RuntimeMethodSignature::from_str("(Landroid/view/Surface;II)V").unwrap().method_signature()).unwrap();
-        let method_system_exit = env.get_static_method_id(&main_activity_class, jni_str!("performSystemExit"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
-        let method_process_pointer_event = env.get_static_method_id(&xr_input_class, jni_str!("processPointerEvent"), RuntimeMethodSignature::from_str("(IIFF)V").unwrap().method_signature()).unwrap();
-        let method_request_ui_render = env.get_static_method_id(&main_activity_class, jni_str!("requestUiRender"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
-
-        let ctx = Arc::new(JniContext {
-            jvm,
-            main_activity: env.new_global_ref(main_activity).unwrap(),
-            main_activity_class: env.new_global_ref(main_activity_class).unwrap(),
-            xr_input_class: env.new_global_ref(xr_input_class).unwrap(),
-            asset_manager: env.new_global_ref(asset_manager).unwrap(),
-            method_system_exit,
-            method_set_surface,
-            method_process_pointer_event,
-            method_request_ui_render
-        });
+        
+        let ctx = Arc::new(JniContext::new(env, jvm, &main_activity, &xr_activity_input, &asset_manager));
 
         let thread_ctx = ctx.clone();
         thread::Builder::new().name("rustrenderthread".to_string()).spawn(move || {
