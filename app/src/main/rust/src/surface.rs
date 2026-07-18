@@ -1,6 +1,6 @@
 use {
     crate::{
-        render::renderer,
+        render::renderer::{self, DrawPayload},
         scene::gltf_model::{self, GltfPrimitive}
     },
     bytemuck::{Pod, Zeroable, bytes_of},
@@ -255,8 +255,9 @@ impl<'a> SurfaceManager<'a> {
 
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
+                .cull_mode(vk::CullModeFlags::NONE)
                 .samples(renderer::MSAA_COUNT)
-                .cull_mode(vk::CullModeFlags::NONE), [
+                .min_sample_shading(0.5), [
                 Shader::builder()
                     .entry_name("vertex_main")
                     .stage(vk::ShaderStageFlags::VERTEX)
@@ -390,7 +391,7 @@ impl<'a> SurfaceManager<'a> {
         }
     }
 
-    pub fn record_with_transform(&self, graph: &mut Graph, surface_texture: Arc<Image>, camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode, transform: Mat4) {
+    pub fn record_with_transform(&self, graph: &mut Graph, surface_texture: Arc<Image>, draw_payload: &DrawPayload, transform: Mat4) {
         let push_consts = SurfacePushConstants { model_transform: transform };
 
         let srgb_texture_view = ImageViewInfoBuilder::default()
@@ -410,10 +411,10 @@ impl<'a> SurfaceManager<'a> {
             .debug_name("Surface")
             .bind_pipeline(&*self.pipeline)
             .multiview(renderer::VIEW_MASK, 0)
-            .shader_resource_access(0, *camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-            .color_attachment_image(0, *swapchain_image, LoadOp::Load, StoreOp::Store)
+            .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+            .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
             .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-            .depth_stencil_attachment_image(*depth_image, LoadOp::Load, StoreOp::Store);
+            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store);
 
         cmd_graph.set_shader_subresource_access((0,1), image_node, srgb_texture_view, AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer);
         cmd_graph

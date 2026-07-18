@@ -84,13 +84,13 @@ pub struct FramePayload<'a> {
 }
 
 pub struct DrawPayload<'a> {
-    pub camera_ubo: &'a vk_graph::node::BufferLeaseNode,
-    pub swapchain_image: &'a vk_graph::node::ImageNode,
-    pub depth_image: &'a vk_graph::node::ImageLeaseNode
+    pub camera_ubo: &'a vk_graph::node::AnyBufferNode,
+    pub color_target: &'a vk_graph::node::AnyImageNode,
+    pub depth_target: &'a vk_graph::node::AnyImageNode,
 }
 
 pub const VIEW_MASK: u32 = !(!0 << 2);
-pub const MSAA_COUNT: SampleCount = SampleCount::Type2;
+pub const MSAA_COUNT: SampleCount = SampleCount::Type4;
 
 impl Renderer {
     pub fn begin_frame(&mut self, xr_context: &mut XrContext) -> Result<ActiveFrame, RenderingError> {
@@ -110,7 +110,9 @@ impl Renderer {
     pub fn draw<F>(&mut self, xr_context: &mut XrContext, active_frame: ActiveFrame, payload: FramePayload, record_commands: F) -> Result<(), RenderingError> where
         F: FnOnce(&mut Graph, &DrawPayload) {
         let mut graph = Graph::default();
-        let depth_image = graph.bind_resource(
+
+        let swapchain_image = graph.bind_resource(Swapchain::image(&xr_context.swapchain, active_frame.swapchain_image_index as _));
+        let depth_target = graph.bind_resource(
             self.pool.resource(ImageInfo::image_2d_array(
                 self.resolution.width,
                 self.resolution.height,
@@ -119,7 +121,6 @@ impl Renderer {
                 vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT
             ).into_builder().sample_count(MSAA_COUNT)).unwrap().with_debug_name("main depth image")
         );
-        let swapchain_image = graph.bind_resource(Swapchain::image(&xr_context.swapchain, active_frame.swapchain_image_index as _));
 
         let camera_data = XrCameraUBO {
             view_matrices: payload.view_matrices,
@@ -134,12 +135,12 @@ impl Renderer {
         let camera_ubo_node = graph.bind_resource(ubo_buffer);
 
         graph.clear_color_image(swapchain_image, ClearColorValue::WHITE_ALPHA_ONE);
-        graph.clear_depth_stencil_image(depth_image, 1.0, 0);
+        graph.clear_depth_stencil_image(depth_target, 1.0, 0);
 
         let draw_payload = DrawPayload {
-            camera_ubo: &camera_ubo_node,
-            swapchain_image: &swapchain_image,
-            depth_image: &depth_image,
+            camera_ubo: &camera_ubo_node.into(),
+            color_target: &swapchain_image.into(),
+            depth_target: &depth_target.into(),
         };
 
         record_commands(&mut graph, &draw_payload);

@@ -71,7 +71,7 @@ VertexStageOutput vertex_main(
 
 [shader("fragment")]
 float4 fragment_main(VertexStageOutput input) : SV_Target {
-    float4 albedo = float4(1.0);
+    float4 albedo = input.base_color_factor;
     if (input.material_base_color_idx >= 0) {
         float2 dx = ddx(input.uv);
         float2 dy = ddy(input.uv);

@@ -16,7 +16,8 @@ use {
         },
         Graph, LoadOp, StoreOp,
         pool::hash::HashPool,
-    }
+    },
+    crate::render::renderer::DrawPayload
 };
 
 pub struct GltfPrimitive {
@@ -93,11 +94,11 @@ pub struct Extras {
 }
 
 impl GltfScene {
-    pub fn record(&self, graph: &mut Graph,  camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode) {
-        self.record_with_transform(graph, camera_ubo, swapchain_image, depth_image, &Mat4::IDENTITY);
+    pub fn record(&self, graph: &mut Graph, draw_payload: &DrawPayload) {
+        self.record_with_transform(graph, draw_payload, &Mat4::IDENTITY);
     }
 
-    pub fn record_with_transform(&self, graph: &mut Graph, camera_ubo: &vk_graph::node::BufferLeaseNode, swapchain_image: &vk_graph::node::ImageNode, depth_image: &vk_graph::node::ImageLeaseNode, transform: &Mat4) {
+    pub fn record_with_transform(&self, graph: &mut Graph, draw_payload: &DrawPayload, transform: &Mat4) {
         let mut flat_draw_calls = Vec::new();
 
         for (node_idx, node) in self.nodes.iter().enumerate() {
@@ -144,10 +145,10 @@ impl GltfScene {
             .debug_name(format!("Scene {}", self.identifier))
             .bind_pipeline(&*self.pipeline)
             .multiview(crate::render::renderer::VIEW_MASK, 0)
-            .shader_resource_access(0, *camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-            .color_attachment_image(0, *swapchain_image, LoadOp::Load, StoreOp::Store)
+            .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+            .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
             .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-            .depth_stencil_attachment_image(*depth_image, LoadOp::Load, StoreOp::Store);
+            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store);
 
         for (idx, texture) in self.textures.iter().enumerate() {
             let image_node = cmd_builder.bind_resource(texture);
@@ -171,8 +172,7 @@ impl GltfScene {
                     .push_constants(0, bytes_of(&push_consts))
                     .draw_indexed(index_count, 1, 0, 0, 0);
             }
-        })
-            .end_cmd();
+        }).end_cmd();
     }
 
     #[inline]

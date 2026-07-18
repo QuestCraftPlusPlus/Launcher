@@ -13,7 +13,7 @@ use {
         },
         stage::Stage,
         scene::scene::Scene,
-        input::{InputState, ExtractedInputs},
+        input::{InputState, ExtractedInputs, Hand},
         instance::XrInstance,
         surface::{Surface, SurfaceManager, SurfaceTexture}
     },
@@ -28,7 +28,6 @@ use {
     vk_graph::driver::ash::vk,
     log::info,
 };
-use crate::input::Hand;
 
 pub struct XrSession {
     pub(crate) running: bool,
@@ -278,7 +277,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
             if let Some(ref last_surface_texture) = last_surface_texture {
-                surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, surface_transform);
+                surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, surface_transform);
             }
             if let Some(ref transform) = pointer_transform {
                 scene.record_pointer(graph, draw_payload, transform);

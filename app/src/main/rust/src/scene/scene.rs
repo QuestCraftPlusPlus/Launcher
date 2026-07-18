@@ -39,8 +39,8 @@ impl Scene {
 
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
-                .samples(renderer::MSAA_COUNT)
-                .cull_mode(CullModeFlags::NONE), [
+                .cull_mode(CullModeFlags::NONE)
+                .samples(renderer::MSAA_COUNT), [
                      Shader::builder()
                          .entry_name("vertex_main")
                          .stage(vk::ShaderStageFlags::VERTEX)
@@ -105,8 +105,8 @@ impl Scene {
 
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
-                .samples(renderer::MSAA_COUNT)
-                .cull_mode(CullModeFlags::NONE), [
+                .cull_mode(CullModeFlags::NONE)
+                .samples(renderer::MSAA_COUNT), [
                      Shader::builder()
                          .entry_name("vertex_main")
                          .stage(vk::ShaderStageFlags::VERTEX)
@@ -171,8 +171,8 @@ impl Scene {
 
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
-                .samples(renderer::MSAA_COUNT)
                 .blend(BlendInfo::ALPHA)
+                .samples(renderer::MSAA_COUNT)
                 .cull_mode(CullModeFlags::NONE), [
                      Shader::builder()
                          .entry_name("vertex_main")
@@ -282,17 +282,17 @@ impl Scene {
     }
 
     pub fn record(&self, graph: &mut Graph, draw_payload: &DrawPayload) {
-        self.assets.gltf_scene.record(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image);
+        self.assets.gltf_scene.record(graph, draw_payload);
     }
 
     pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, controller_matrix: &Mat4, ray_transform: Option<Mat4>) {
-        self.assets.controller_scene.record_with_transform(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, controller_matrix);
+        self.assets.controller_scene.record_with_transform(graph, draw_payload, controller_matrix);
         if let Some(ray_transform) = ray_transform {
-            self.assets.ray_scene.record_with_transform(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, &ray_transform);
+            self.assets.ray_scene.record_with_transform(graph, draw_payload, &ray_transform);
         }
     }
 
     pub fn record_pointer(&self, graph: &mut Graph, draw_payload: &DrawPayload, pointer_matrix: &Mat4) {
-        self.assets.pointer_scene.record_with_transform(graph, draw_payload.camera_ubo, draw_payload.swapchain_image, draw_payload.depth_image, pointer_matrix);
+        self.assets.pointer_scene.record_with_transform(graph, draw_payload, pointer_matrix);
     }
 }
