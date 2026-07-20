@@ -1,7 +1,6 @@
 package com.qcxr.questcraft;
 
 import android.annotation.SuppressLint;
-import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,6 +14,7 @@ import com.qcxr.questcraft.ui.UIActivity;
 import com.qcxr.questcraft.utils.Constants;
 
 import java.lang.ref.WeakReference;
+import java.util.Optional;
 
 import androidx.activity.ComponentActivity;
 
@@ -22,30 +22,31 @@ import org.angelauramc.judgelib.JudgeLibAPI;
 import org.angelauramc.judgelib.impl.InitInfo;
 
 public class MainActivity extends ComponentActivity {
-    private static Handler uiThreadHandler;
     public static WeakReference<MainActivity> weakMe = new WeakReference<>(null);
+    public static Optional<MainActivity> instance() {
+        return Optional.ofNullable(weakMe.get());
+    }
 
-    public static View questLauncherView;
-    private NativeSurface nativeSurface;
-
+    private static Handler uiThreadHandler;
     public static JudgeLibAPI judgeLibAPI = JudgeLibAPI.getInstance();
     public static String userLoginCode = null;
 
-    static {
-        System.loadLibrary("qcxr");
-    }
+    private View questLauncherView;
+    private NativeSurface nativeSurface;
+    private XRActivityInput xrActivityInput;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         //setDensity();
-        uiThreadHandler = new Handler(Looper.getMainLooper());
         weakMe = new WeakReference<>(this);
+        uiThreadHandler = new Handler(Looper.getMainLooper());
+        xrActivityInput = new XRActivityInput(uiThreadHandler);
 
         // JudgeLib Init
         initJudgeLib();
 
-        //start(new XRActivityInput(), getAssets());
+        JniBridge.start(this, getAssets());
         setContentView(UIActivity.createView(this));
     }
 
@@ -62,7 +63,7 @@ public class MainActivity extends ComponentActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stop();
+        JniBridge.stop();
     }
 
     private void deviceCodeCallback(DeviceCode res) {
@@ -81,33 +82,31 @@ public class MainActivity extends ComponentActivity {
         getResources().updateConfiguration(null, null);
     }
 
-    private native void start(XRActivityInput xrActivityInput, AssetManager assetManager);
-    private native void stop();
+    public void setVulkanSurface(Surface surface, int width, int height) {
+        runOnUiThread(() -> {
+            this.nativeSurface = new NativeSurface(this);
+            questLauncherView = UIActivity.createView(this);
 
-    @SuppressLint("SetJavaScriptEnabled")
-    public static void setVulkanSurface(Surface surface) {
-        MainActivity me = weakMe.get();
-        if (me == null) return;
+            this.nativeSurface.setSurface(surface);
 
-        int w = 2560;
-        int h = 1440;
+            this.nativeSurface.setChildView(questLauncherView);
 
-        me.runOnUiThread(() -> {
-            me.nativeSurface = new NativeSurface(me);
-            questLauncherView = UIActivity.createView(me);
-
-            me.nativeSurface.setSurface(surface);
-
-            me.nativeSurface.setChildView(questLauncherView);
-
-            me.setContentView(me.nativeSurface, new ViewGroup.LayoutParams(w, h));
+            this.setContentView(this.nativeSurface, new ViewGroup.LayoutParams(width, height));
         });
     }
 
-    public static void performSystemExit() {
-        uiThreadHandler.post(()->{
-            weakMe.get();
+    public void performSystemExit() {
+        uiThreadHandler.post(() -> {
             System.exit(0);
         });
+    }
+
+    public void requestUiRender() {
+        if (this.nativeSurface != null) this.nativeSurface.requestUiRender();
+    }
+
+    public void processPointerEvent(int pointerId, int action, float normX, float normY) {
+        if (this.questLauncherView == null) return;
+        this.xrActivityInput.processPointerEvent(questLauncherView, pointerId, action, normX, normY);
     }
 }
