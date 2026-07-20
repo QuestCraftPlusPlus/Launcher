@@ -1,4 +1,5 @@
 import com.android.build.api.dsl.ApplicationExtension
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -30,6 +31,12 @@ configure<ApplicationExtension> {
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
             debugSymbolLevel = "FULL"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.directories += "src/generated/assets"
         }
     }
 
@@ -79,63 +86,80 @@ dependencies {
     debugImplementation(libs.ui.tooling)
 }
 
-val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
-tasks
-    .matching { it.name.matches(Regex("merge.*JniLibFolders")) }
-    .configureEach {
-        inputs.dir(rustJniLibsDir)
-        dependsOn("cargoBuild")
-    }
+val generatedShaderDir = layout.buildDirectory.dir("generated/shaders")
 
-tasks.matching { it.name.matches(Regex("merge.*Assets")) }.configureEach {
-    inputs.files(compileSlangShaders.map { it.outputs.files })
+val compileSlangShaders = tasks.register<CompileSlangShadersTask>("compileSlangShaders") {
+    group = "build"
+    description = "Compiles .slang shaders to SPIR-V in src/generated/assets/shaders if slangc is available."
+
+    inputDir.set(layout.projectDirectory.dir("src/main/assets/shaders"))
+    outputDir.set(layout.projectDirectory.dir("src/generated/assets/shaders"))
 }
 
-val compileSlangShaders = tasks.register("compileSlangShaders") {
-    group = "build"
-    description = "Compiles .slang shaders to SPIR-V if slangc is available."
+tasks.matching {
+    it.name.matches(Regex("merge.*Assets")) || it.name.contains("lint", ignoreCase = true)
+}.configureEach {
+    dependsOn(compileSlangShaders)
+}
 
-    val shaderDir = file("src/main/assets/shaders")
+val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
 
-    inputs.dir(shaderDir)
-    outputs.dir(shaderDir)
-
-    doLast {
-        val checkCommand = if (System.getProperty("os.name").contains("Windows")) listOf("where", "slangc") else listOf("which", "slangc")
-        val isSlangcPresent = try {
-            val process = ProcessBuilder(checkCommand).start()
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
-        }
-
-        if (isSlangcPresent) {
-
-            if (shaderDir.exists()) {
-                shaderDir.walkTopDown().forEach { file ->
-                    if (file.isFile && file.extension == "slang") {
-                        val outputSpv = file.absolutePath.removeSuffix(".slang") + ".spv"
-
-                        val compileProcess =
-                            ProcessBuilder("slangc", file.absolutePath, "-target", "spirv", "-o", outputSpv)
-                                .inheritIO()
-                                .start()
-
-                        val exitCode = compileProcess.waitFor()
-                        if (exitCode != 0) {
-                            throw GradleException("slangc failed compiling ${file.name} with exit code $exitCode")
-                        }
-                    }
-                }
-            }
-        } else {
-            println("Notice: 'slangc' was not found in the system PATH. Skipping shader compilation.")
-        }
-    }
+tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach {
+    inputs.dir(rustJniLibsDir)
+    dependsOn("cargoBuild")
 }
 
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_21
+    }
+}
+
+abstract class CompileSlangShadersTask : DefaultTask() {
+
+    @get:InputDirectory
+    abstract val inputDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun compile() {
+        val inFolder = inputDir.get().asFile
+        val outFolder = outputDir.get().asFile
+
+        val checkCommand = if (System.getProperty("os.name").contains("Windows")) {
+            listOf("where", "slangc")
+        } else {
+            listOf("which", "slangc")
+        }
+
+        val isSlangcPresent = try {
+            ProcessBuilder(checkCommand).start().waitFor() == 0
+        } catch (e: Exception) {
+            false
+        }
+
+        if (isSlangcPresent && inFolder.exists()) {
+            inFolder.walkTopDown().forEach { file ->
+                if (file.isFile && file.extension == "slang") {
+                    val relativePath = file.relativeTo(inFolder).path.removeSuffix(".slang") + ".spv"
+                    val outputFile = File(outFolder, relativePath)
+
+                    outputFile.parentFile?.mkdirs()
+
+                    val compileProcess = ProcessBuilder(
+                        "slangc", file.absolutePath, "-target", "spirv", "-o", outputFile.absolutePath
+                    ).inheritIO().start()
+
+                    val exitCode = compileProcess.waitFor()
+                    if (exitCode != 0) {
+                        throw GradleException("slangc failed compiling ${file.name} with exit code $exitCode")
+                    }
+                }
+            }
+        } else if (!isSlangcPresent) {
+            println("Notice: 'slangc' was not found in PATH. Using pre-compiled .spv files in src/generated/assets/shaders if present.")
+        }
     }
 }
