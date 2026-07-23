@@ -32,6 +32,7 @@ pub struct GltfPrimitive {
 
 pub struct GltfMesh {
     pub name: String,
+    pub special: bool,
     pub primitives: Vec<GltfPrimitive>
 }
 
@@ -99,15 +100,15 @@ impl GltfScene {
     }
 
     pub fn record_with_transform(&self, graph: &mut Graph, draw_payload: &DrawPayload, transform: &Mat4) {
+        profiling::function_scope!();
         let mut flat_draw_calls = Vec::new();
 
-        for (node_idx, node) in self.nodes.iter().enumerate() {
+        for (_, node) in self.nodes.iter().enumerate() {
             if let Some(mesh_idx) = node.mesh_index {
-                if self.specials.contains(&node_idx) {
+                let mesh = &self.meshes[mesh_idx];
+                if mesh.special {
                     continue;
                 }
-
-                let mesh = &self.meshes[mesh_idx];
 
                 for primitive in &mesh.primitives {
                     let (base_color_idx, metallic_roughness_idx, normal_map_idx, base_color_factor) =
@@ -160,9 +161,9 @@ impl GltfScene {
         }
 
         for (_, _, v_node, i_node) in &flat_draw_calls {
-            cmd_builder = cmd_builder
-                .resource_access(*i_node, AccessType::IndexBuffer)
-                .resource_access(*v_node, AccessType::VertexBuffer);
+            cmd_builder
+                .set_resource_access(*i_node, AccessType::IndexBuffer)
+                .set_resource_access(*v_node, AccessType::VertexBuffer);
         }
 
         cmd_builder.record_cmd(move |cmd| {
@@ -328,7 +329,7 @@ impl GltfScene {
                 }
             }
             let store_cpu_side_data = {
-                if let Some(extras) = extras && extras.is_ui_surface.map_or(false, |val| val == 1) {
+                if let Some(ref extras) = extras && extras.is_ui_surface.map_or(false, |val| val == 1) {
                     true
                 } else {
                     false
@@ -396,7 +397,11 @@ impl GltfScene {
                 });
             }
 
-            scene.meshes.push(GltfMesh { name: mesh.name().unwrap_or("unnamed").to_string(), primitives: prims });
+            scene.meshes.push(GltfMesh {
+                name: mesh.name().unwrap_or("unnamed").to_string(),
+                special: extras.is_some_and(|e| {e.is_ui_surface.is_some() || e.is_spawnpoint.is_some()}),
+                primitives: prims
+            });
         }
 
         let gltf_scene = document.default_scene().expect("GLTF must have a default scene");
