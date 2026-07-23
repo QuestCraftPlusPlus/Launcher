@@ -11,12 +11,13 @@ use {
 mod jni_state;
 mod app;
 mod input;
-pub mod render;
+mod render;
 mod scene;
 mod instance;
 mod stage;
 mod xr_util;
 mod surface;
+mod egui;
 
 #[jni_mangle("com.qcxr.questcraft.JniBridge")]
 pub fn start<'local>(
