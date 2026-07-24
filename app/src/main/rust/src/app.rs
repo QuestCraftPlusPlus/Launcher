@@ -136,6 +136,7 @@ impl XrContext {
 pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mut AAssetManager) {
     info!("Hello from main loop!");
 
+    #[cfg(feature = "profiled")]
     let _puffin_server;
 
     #[cfg(feature = "profiled")]
@@ -165,7 +166,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
-    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, surface_mesh);
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.gltf_scene, surface_mesh);
 
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();

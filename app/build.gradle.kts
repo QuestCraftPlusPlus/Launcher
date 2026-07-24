@@ -13,10 +13,10 @@ cargo {
     module = "./src/main/rust"
     libname = "qcxr"
     targets = listOf("arm64")
-    features {
-        defaultAnd("profiled")
-    }
-//    profile = "release"
+//    features {
+//        defaultAnd("profiled")
+//    }
+    profile = "release"
 }
 
 configure<ApplicationExtension> {

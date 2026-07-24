@@ -20,11 +20,22 @@ use {
     crate::render::renderer::DrawPayload
 };
 
-pub struct GltfPrimitive {
-    pub vertex_buffer: Arc<Buffer>,
-    pub index_buffer: Arc<Buffer>,
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+pub struct DrawIndexedIndirectCommand {
     pub index_count: u32,
+    pub instance_count: u32,
+    pub first_index: u32,
+    pub vertex_offset: i32,
+    pub first_instance: u32,
+}
+
+pub struct GltfPrimitive {
     pub material_index: Option<usize>,
+
+    pub first_index: u32,
+    pub index_count: u32,
+    pub base_vertex: i32,
 
     pub cpu_vertex_buffer: Option<Vec<Vertex>>,
     pub cpu_index_buffer: Option<Vec<u32>>,
@@ -58,22 +69,33 @@ pub struct GltfScene {
     pub nodes: Vec<GltfNode>,
     pub roots: Vec<NodeIndex>,
     pub meshes: Vec<GltfMesh>,
-    pub materials: Vec<Arc<Material>>,
     pub textures: Vec<Arc<Image>>,
     pub specials: Vec<NodeIndex>,
+
+    pub vertex_buffer: Arc<Buffer>,
+    pub index_buffer: Arc<Buffer>,
+    pub instance_buffer: Arc<Buffer>,
+    pub indirect_buffer: Arc<Buffer>,
+    pub draw_count: u32,
 
     pub node_extras: HashMap<NodeIndex, Extras>,
 }
 
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-struct PushConstants {
-    model_transform: Mat4,
+struct ShaderMaterial {
     base_color_idx: i32,
     metallic_roughness_idx: i32,
     normal_map_idx: i32,
+    _pad: i32,
+}
+
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct PushConstants {
+    model_transform: Mat4,
     base_color_factor: [f32; 4],
-    _pad: u32,
+    material: ShaderMaterial,
 }
 
 #[repr(C)]
@@ -100,46 +122,13 @@ impl GltfScene {
     }
 
     pub fn record_with_transform(&self, graph: &mut Graph, draw_payload: &DrawPayload, transform: &Mat4) {
+        #[cfg(feature = "profiled")]
         profiling::function_scope!();
-        let mut flat_draw_calls = Vec::new();
 
-        for (_, node) in self.nodes.iter().enumerate() {
-            if let Some(mesh_idx) = node.mesh_index {
-                let mesh = &self.meshes[mesh_idx];
-                if mesh.special {
-                    continue;
-                }
-
-                for primitive in &mesh.primitives {
-                    let (base_color_idx, metallic_roughness_idx, normal_map_idx, base_color_factor) =
-                        if let Some(material_idx) = primitive.material_index {
-                            let material = &self.materials[material_idx];
-                            (
-                                material.base_color_texture_index.map(|idx| idx as i32).unwrap_or(-1),
-                                material.metallic_roughness_texture_index.map(|idx| idx as i32).unwrap_or(-1),
-                                material.normal_texture_index.map(|idx| idx as i32).unwrap_or(-1),
-                                material.base_color_factor,
-                            )
-                        } else {
-                            (-1, -1, -1, [1.0, 1.0, 1.0, 1.0])
-                        };
-
-                    let push_consts = PushConstants {
-                        model_transform: transform * node.global_transform,
-                        base_color_idx,
-                        metallic_roughness_idx,
-                        normal_map_idx,
-                        base_color_factor,
-                        _pad: 0,
-                    };
-
-                    let v_node = graph.bind_resource(primitive.vertex_buffer.clone());
-                    let i_node = graph.bind_resource(primitive.index_buffer.clone());
-
-                    flat_draw_calls.push((push_consts, primitive.index_count, v_node, i_node));
-                }
-            }
-        }
+        let v_node = graph.bind_resource(self.vertex_buffer.clone());
+        let i_node = graph.bind_resource(self.index_buffer.clone());
+        let instance_node = graph.bind_resource(self.instance_buffer.clone());
+        let indirect_node = graph.bind_resource(self.indirect_buffer.clone());
 
         let mut cmd_builder = graph
             .begin_cmd()
@@ -147,32 +136,31 @@ impl GltfScene {
             .bind_pipeline(&*self.pipeline)
             .multiview(crate::render::renderer::VIEW_MASK, 0)
             .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+            .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
             .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
             .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store);
+            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+            .resource_access(i_node, AccessType::IndexBuffer)
+            .resource_access(v_node, AccessType::VertexBuffer)
+            .resource_access(indirect_node, AccessType::IndirectBuffer);
 
         for (idx, texture) in self.textures.iter().enumerate() {
             let image_node = cmd_builder.bind_resource(texture);
             cmd_builder.set_shader_resource_access(
-                (1, [idx as u32]),
+                (2, [idx as u32]),
                 image_node,
                 AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
             );
         }
 
-        for (_, _, v_node, i_node) in &flat_draw_calls {
-            cmd_builder
-                .set_resource_access(*i_node, AccessType::IndexBuffer)
-                .set_resource_access(*v_node, AccessType::VertexBuffer);
-        }
+        let scene_transform = *transform;
+        let draw_count = self.draw_count;
 
         cmd_builder.record_cmd(move |cmd| {
-            for (push_consts, index_count, v_node, i_node) in flat_draw_calls {
-                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
-                    .bind_vertex_buffer(0, v_node, 0)
-                    .push_constants(0, bytes_of(&push_consts))
-                    .draw_indexed(index_count, 1, 0, 0, 0);
-            }
+            cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
+                .bind_vertex_buffer(0, v_node, 0)
+                .push_constants(0, bytes_of(&scene_transform))
+                .draw_indexed_indirect(indirect_node, 0, draw_count, size_of::<DrawIndexedIndirectCommand>() as u32);
         }).end_cmd();
     }
 
@@ -197,17 +185,13 @@ impl GltfScene {
     pub fn new(identifier: String, mut asset: ndk::asset::Asset, device: &Device, pipeline: Arc<GraphicsPipeline>) -> Self {
         let (document, buffers, images) = gltf::import_slice(asset.buffer().unwrap()).expect("Failed to parse GLTF asset");
 
-        let mut scene = GltfScene {
-            identifier,
-            pipeline,
-            nodes: Vec::new(),
-            roots: Vec::new(),
-            meshes: Vec::new(),
-            materials: Vec::new(),
-            textures: Vec::new(),
-            specials: Vec::new(),
-            node_extras: HashMap::new(),
-        };
+        let mut scene_nodes = Vec::new();
+        let mut scene_roots = Vec::new();
+        let mut scene_meshes = Vec::new();
+        let mut scene_materials = Vec::new();
+        let scene_textures: Vec<Arc<Image>>;
+        let mut scene_specials = Vec::new();
+        let mut node_extras = HashMap::new();
 
         let mut texture_is_color = vec![false; document.textures().count()];
 
@@ -301,7 +285,7 @@ impl GltfScene {
             graph.copy_buffer_to_image(image_buf, image_node);
         }
         graph.finalize().queue_submit(&mut HashPool::new(device), 0, 0).expect("Failed to upload images to GPU");
-        scene.textures = uploaded_textures;
+        scene_textures = uploaded_textures;
 
         for material in document.materials() {
             let pbr = material.pbr_metallic_roughness();
@@ -313,7 +297,7 @@ impl GltfScene {
 
             info!("Base Color Factor: {:?}", base_color_factor);
 
-            scene.materials.push(Arc::new(Material {
+            scene_materials.push(Arc::new(Material {
                 base_color_texture_index,
                 metallic_roughness_texture_index,
                 normal_texture_index,
@@ -321,6 +305,8 @@ impl GltfScene {
             }));
         }
 
+        let mut all_vertices: Vec<Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
         for mesh in document.meshes() {
             let mut extras = None;
             if let Some(raw_extras) = mesh.extras() {
@@ -384,38 +370,138 @@ impl GltfScene {
 
                 let indices: Vec<u32> = indices.into_u32().collect();
 
+                let base_vertex = all_vertices.len() as i32;
+                let first_index = all_indices.len() as u32;
+                let index_count = indices.len() as u32;
+
                 let material_index = prim.material().index();
-                let vertex_buffer = Arc::new(Buffer::create_from_slice(&device, BufferUsageFlags::VERTEX_BUFFER, bytemuck::cast_slice(&vertices)).unwrap());
-                let index_buffer = Arc::new(Buffer::create_from_slice(&device, BufferUsageFlags::INDEX_BUFFER, bytemuck::cast_slice(&indices)).unwrap());
                 prims.push(GltfPrimitive {
-                    vertex_buffer,
-                    index_buffer,
-                    index_count: indices.len() as u32,
                     material_index,
-                    cpu_vertex_buffer: if store_cpu_side_data { Some(vertices) } else { None },
-                    cpu_index_buffer: if store_cpu_side_data { Some(indices) } else { None },
+                    index_count,
+                    first_index,
+                    base_vertex,
+                    cpu_vertex_buffer: if store_cpu_side_data { Some(vertices.clone()) } else { None },
+                    cpu_index_buffer: if store_cpu_side_data { Some(indices.clone()) } else { None },
                 });
+
+                all_vertices.extend(vertices);
+                all_indices.extend(indices);
             }
 
-            scene.meshes.push(GltfMesh {
+            scene_meshes.push(GltfMesh {
                 name: mesh.name().unwrap_or("unnamed").to_string(),
                 special: extras.is_some_and(|e| {e.is_ui_surface.is_some() || e.is_spawnpoint.is_some()}),
                 primitives: prims
             });
         }
 
+        info!("all_vertices: {}, all_indices: {}", all_vertices.len(), all_indices.len());
+        let vertex_buffer = Arc::new(Buffer::create_from_slice(
+            device,
+            BufferUsageFlags::VERTEX_BUFFER,
+            bytemuck::cast_slice(&all_vertices),
+        ).unwrap());
+
+        let index_buffer = Arc::new(Buffer::create_from_slice(
+            device,
+            BufferUsageFlags::INDEX_BUFFER,
+            bytemuck::cast_slice(&all_indices),
+        ).unwrap());
+
         let gltf_scene = document.default_scene().expect("GLTF must have a default scene");
         for node in gltf_scene.nodes() {
-            let root_idx = scene.load_node(&node);
-            scene.roots.push(root_idx);
+            let root_idx = Self::load_node(&mut scene_nodes, &mut scene_specials, &mut node_extras, &node);
+            scene_roots.push(root_idx);
         }
 
-        scene.update_scene_transforms();
+        Self::update_scene_transforms(&mut scene_nodes, &scene_roots);
+        let (instance_data, draw_commands) = Self::build_draw_data(&scene_nodes, &scene_meshes, &scene_materials);
 
-        scene
+        info!("instance_data: {}, draw_commands: {}", instance_data.len(), draw_commands.len());
+        let instance_buffer = Arc::new(Buffer::create_from_slice(
+            device,
+            BufferUsageFlags::STORAGE_BUFFER,
+            bytemuck::cast_slice(&instance_data)
+        ).expect("Failed to create instance buffer"));
+
+        let indirect_buffer = Arc::new(Buffer::create_from_slice(
+            device,
+            BufferUsageFlags::STORAGE_BUFFER,
+            bytemuck::cast_slice(&draw_commands)
+        ).expect("Failed to create indirect buffer"));
+
+        GltfScene {
+            identifier,
+            pipeline,
+            nodes: scene_nodes,
+            roots: scene_roots,
+            meshes: scene_meshes,
+            vertex_buffer,
+            index_buffer,
+            textures: scene_textures,
+            specials: scene_specials,
+            instance_buffer,
+            indirect_buffer,
+            draw_count: draw_commands.len() as u32,
+            node_extras
+        }
     }
 
-    fn load_node(&mut self, node: &Node) -> NodeIndex {
+    fn build_draw_data(nodes: &Vec<GltfNode>, meshes: &Vec<GltfMesh>, materials: &Vec<Arc<Material>>) -> (Vec<PushConstants>, Vec<DrawIndexedIndirectCommand>) {
+        let mut instance_data = Vec::new();
+        let mut draw_commands = Vec::new();
+
+        for node in nodes {
+            let Some(mesh_idx) = node.mesh_index else { continue };
+            let mesh = &meshes[mesh_idx];
+            if mesh.special {
+                continue;
+            }
+
+            for primitive in &mesh.primitives {
+                let (base_color_idx, metallic_roughness_idx, normal_map_idx, base_color_factor) =
+                    if let Some(material_idx) = primitive.material_index {
+                        let material = &materials[material_idx];
+                        (
+                            material.base_color_texture_index.map(|i| i as i32).unwrap_or(-1),
+                            material.metallic_roughness_texture_index.map(|i| i as i32).unwrap_or(-1),
+                            material.normal_texture_index.map(|i| i as i32).unwrap_or(-1),
+                            material.base_color_factor,
+                        )
+                    } else {
+                        (-1, -1, -1, [1.0, 1.0, 1.0, 1.0])
+                    };
+
+                let first_instance = instance_data.len() as u32;
+                let material = ShaderMaterial {
+                    base_color_idx,
+                    metallic_roughness_idx,
+                    normal_map_idx,
+                    _pad: 0
+                };
+
+                info!("material: {}, {}, {}, idx: {}", material.base_color_idx, material.metallic_roughness_idx, material.normal_map_idx, first_instance);
+
+                instance_data.push(PushConstants {
+                    model_transform: node.global_transform,
+                    material,
+                    base_color_factor,
+                });
+
+                draw_commands.push(DrawIndexedIndirectCommand {
+                    index_count: primitive.index_count,
+                    instance_count: 1,
+                    first_index: primitive.first_index,
+                    vertex_offset: primitive.base_vertex,
+                    first_instance,
+                });
+            }
+        }
+
+        (instance_data, draw_commands)
+    }
+
+    fn load_node(nodes: &mut Vec<GltfNode>, specials: &mut Vec<NodeIndex>, node_extras: &mut HashMap<NodeIndex, Extras>, node: &Node) -> NodeIndex {
         let transform = node.transform().matrix();
         let local_transform = Mat4::from_cols_array_2d(&transform);
 
@@ -427,8 +513,8 @@ impl GltfScene {
                 if let Ok(ui_props) = serde_json::from_str::<Extras>(json_str) {
                     if ui_props.is_ui_surface.is_some() {
                         info!("Found UI surface mesh: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
-                        self.specials.push(self.nodes.len());
-                        self.node_extras.insert(self.nodes.len(), ui_props);
+                        specials.push(nodes.len());
+                        node_extras.insert(nodes.len(), ui_props);
                     }
                 }
             }
@@ -439,8 +525,8 @@ impl GltfScene {
             if let Ok(ui_props) = serde_json::from_str::<Extras>(json_str) {
                 if ui_props.is_spawnpoint.is_some() {
                     info!("Found spawn point node: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
-                    self.specials.push(self.nodes.len());
-                    self.node_extras.insert(self.nodes.len(), ui_props);
+                    specials.push(nodes.len());
+                    node_extras.insert(nodes.len(), ui_props);
                 }
             }
         }
@@ -452,36 +538,36 @@ impl GltfScene {
             children: Vec::new()
         };
 
-        let node_idx = self.nodes.len();
-        self.nodes.push(new_node);
+        let node_idx = nodes.len();
+        nodes.push(new_node);
 
         let child_indices: Vec<NodeIndex> = node.children()
-            .map(|child| self.load_node(&child))
+            .map(|child| Self::load_node(nodes, specials, node_extras, &child))
             .collect();
 
-        self.nodes[node_idx].children = child_indices;
+        nodes[node_idx].children = child_indices;
 
         node_idx
     }
 
-    pub fn update_scene_transforms(&mut self) {
+    pub fn update_scene_transforms(nodes: &mut Vec<GltfNode>, roots: &Vec<NodeIndex>) {
         let coordinate_correction = Mat4::from_scale(glam::vec3(1.0, 1.0, 1.0));
 
-        for root_idx in self.roots.clone() {
-            self.update_node_transform(root_idx, coordinate_correction);
+        for root_idx in roots {
+            Self::update_node_transform(nodes, *root_idx, coordinate_correction);
         }
     }
 
-    fn update_node_transform(&mut self, idx: NodeIndex, parent_transform: Mat4) {
+    fn update_node_transform(nodes: &mut Vec<GltfNode>, idx: NodeIndex, parent_transform: Mat4) {
         let (current_global, children) = {
-            let node = &mut self.nodes[idx];
+            let node = &mut nodes[idx];
             node.global_transform = parent_transform * node.local_transform;
 
             (node.global_transform, node.children.clone())
         };
 
         for child_idx in children {
-            self.update_node_transform(child_idx, current_global);
+            Self::update_node_transform(nodes, child_idx, current_global);
         }
     }
 

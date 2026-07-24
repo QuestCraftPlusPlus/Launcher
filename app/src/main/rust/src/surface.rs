@@ -21,6 +21,7 @@ use {
         Graph, LoadOp, StoreOp
     }
 };
+use crate::scene::gltf_model::GltfScene;
 
 pub struct SurfaceTexture {
     pub image: Arc<Image>,
@@ -232,6 +233,7 @@ impl Drop for Surface {
 
 pub struct SurfaceManager<'a> {
     pub pipeline: Arc<GraphicsPipeline>,
+    pub scene: &'a GltfScene,
     pub primitive: &'a GltfPrimitive,
 }
 
@@ -248,7 +250,7 @@ pub struct RaycastHit {
 }
 
 impl<'a> SurfaceManager<'a> {
-    pub fn new(asset_manager: &AssetManager, device: &Device, primitive: &'a GltfPrimitive) -> Self {
+    pub fn new(asset_manager: &AssetManager, device: &Device, scene: &'a GltfScene, primitive: &'a GltfPrimitive) -> Self {
         let pipeline = Arc::new({
             let mut asset = asset_manager.open(c"shaders/gltf_surface.spv").expect("Failed to load 'gltf_surface' shader");
             let spv_bytes = asset.buffer().unwrap();
@@ -299,6 +301,7 @@ impl<'a> SurfaceManager<'a> {
         });
 
         Self {
+            scene,
             primitive,
             pipeline,
         }
@@ -403,9 +406,11 @@ impl<'a> SurfaceManager<'a> {
             .build();
 
         let image_node = graph.bind_resource(surface_texture);
-        let index_node = graph.bind_resource(self.primitive.index_buffer.clone());
-        let vertex_node = graph.bind_resource(self.primitive.vertex_buffer.clone());
+        let index_node = graph.bind_resource(self.scene.index_buffer.clone());
+        let vertex_node = graph.bind_resource(self.scene.vertex_buffer.clone());
         let index_count = self.primitive.index_count;
+        let first_index = self.primitive.first_index;
+        let base_vertex = self.primitive.base_vertex;
 
         let mut cmd_graph = graph.begin_cmd()
             .debug_name("Surface")
@@ -414,17 +419,17 @@ impl<'a> SurfaceManager<'a> {
             .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
             .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
             .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store);
+            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+            .resource_access(index_node, AccessType::IndexBuffer)
+            .resource_access(vertex_node, AccessType::VertexBuffer);
 
         cmd_graph.set_shader_subresource_access((0,1), image_node, srgb_texture_view, AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer);
         cmd_graph
-            .resource_access(index_node, AccessType::IndexBuffer)
-            .resource_access(vertex_node, AccessType::VertexBuffer)
             .record_cmd(move |cmd| {
                 cmd.bind_index_buffer(index_node, 0, IndexType::UINT32)
                     .bind_vertex_buffer(0, vertex_node, 0)
                     .push_constants(0, bytes_of(&push_consts))
-                    .draw_indexed(index_count, 1, 0, 0, 0);
+                    .draw_indexed(index_count, 1, first_index, base_vertex, 0);
         }).end_cmd();
     }
 }

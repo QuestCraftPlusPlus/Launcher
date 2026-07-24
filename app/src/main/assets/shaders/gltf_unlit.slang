@@ -17,54 +17,56 @@ struct VertexStageOutput
     float4 sv_position : SV_Position;
     float3 world_pos : POSITION;
     float2 uv : TEXCOORD0;
-    float3 world_normal : NORMAL;
-    float3 world_tangent : TANGENT;
-    float3 world_bitangent : BITANGENT;
     nointerpolation int material_base_color_idx : BLENDINDICES0;
     nointerpolation int material_mr_idx : BLENDINDICES1;
     nointerpolation int material_normal_idx : BLENDINDICES2;
+    nointerpolation int instance_id : INSTANCEID;
     float4 base_color_factor : COLOR0;
 };
 
 struct PushConstants {
     column_major float4x4 model_transform;
-    int base_color_idx;
-    int metallic_roughness_idx;
-    int normal_map_idx;
     float4 base_color_factor;
+    int4 material;
+    // int base_color_idx;
+    // int metallic_roughness_idx;
+    // int normal_map_idx;
+    // int pad0;
 };
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<XrCameraUbo> camera;
 
 [[vk::binding(1, 0)]]
+StructuredBuffer<PushConstants, Std430DataLayout> draw_data;
+
+[[vk::binding(2, 0)]]
 Sampler2D texture_heap[8192];
 
 [shader("vertex")]
 VertexStageOutput vertex_main(
-    uniform PushConstants pc,
+    uniform column_major float4x4 transform,
     VertexInput input,
-    uint viewID : SV_ViewID
+    uint view_id: SV_ViewID,
+    uint instance_id: SV_VulkanInstanceID
 )
 {
     VertexStageOutput output;
+    PushConstants pc = draw_data[instance_id];
 
-    float4 world_pos = mul(pc.model_transform, float4(input.position, 1.0));
-    float4 view_pos = mul(camera.view_matrices[viewID], world_pos);
+    float4x4 final_transform = mul(transform, pc.model_transform);
+    float4 world_pos = mul(final_transform, float4(input.position, 1.0));
+    float4 view_pos = mul(camera.view_matrices[view_id], world_pos);
 
-    output.sv_position = mul(camera.projection_matrices[viewID], view_pos);
+    output.sv_position = mul(camera.projection_matrices[view_id], view_pos);
     output.world_pos = world_pos.xyz;
     output.uv = input.uv;
 
-    float3x3 normal_matrix = (float3x3)pc.model_transform;
-    output.world_normal = normalize(mul(normal_matrix, input.normal));
-    output.world_tangent = normalize(mul(normal_matrix, input.tangent));
-    output.world_bitangent = normalize(mul(normal_matrix, input.bitangent));
-
-    output.material_base_color_idx = pc.base_color_idx;
-    output.material_mr_idx = pc.metallic_roughness_idx;
-    output.material_normal_idx = pc.normal_map_idx;
+    output.material_base_color_idx = pc.material.x;
+    output.material_mr_idx = pc.material.y;
+    output.material_normal_idx = pc.material.z;
     output.base_color_factor = pc.base_color_factor;
+    output.instance_id = instance_id;
 
     return output;
 }
@@ -89,7 +91,7 @@ float4 fragment_main(VertexStageOutput input) : SV_Target {
         [unroll]
         for (int i = 0; i < 4; i++) {
             float2 uv_offset = dx * rgss_offsets[i].x + dy * rgss_offsets[i].y;
-            float4 sample_val = texture_heap[input.material_base_color_idx].Sample(input.uv + uv_offset);
+            float4 sample_val = texture_heap[NonUniformResourceIndex(input.material_base_color_idx)].SampleGrad(input.uv + uv_offset, dx, dy);
 
             accumulated_color.xyz += sample_val.xyz * sample_val.a;
             accumulated_color.a += sample_val.a;
