@@ -52,6 +52,7 @@ pub struct Material {
     pub metallic_roughness_texture_index: Option<usize>,
     pub normal_texture_index: Option<usize>,
     pub base_color_factor: [f32; 4],
+    pub double_sided: bool,
 }
 
 pub type NodeIndex = usize;
@@ -65,7 +66,8 @@ pub struct GltfNode {
 
 pub struct GltfScene {
     pub identifier: String,
-    pub pipeline: Arc<GraphicsPipeline>, // the simple GLTF workflow we're working with (i.e., only simple material gltf objects are supported) allows us to be stupid and use a single pipeline per scene (technically could be global but global state management aeugh)
+    pub culled_pipeline: Arc<GraphicsPipeline>,
+    pub no_cull_pipeline: Arc<GraphicsPipeline>,
     pub nodes: Vec<GltfNode>,
     pub roots: Vec<NodeIndex>,
     pub meshes: Vec<GltfMesh>,
@@ -76,7 +78,8 @@ pub struct GltfScene {
     pub index_buffer: Arc<Buffer>,
     pub instance_buffer: Arc<Buffer>,
     pub indirect_buffer: Arc<Buffer>,
-    pub draw_count: u32,
+    pub culled_draw_count: u32,
+    pub no_cull_draw_count: u32,
 
     pub node_extras: HashMap<NodeIndex, Extras>,
 }
@@ -130,38 +133,75 @@ impl GltfScene {
         let instance_node = graph.bind_resource(self.instance_buffer.clone());
         let indirect_node = graph.bind_resource(self.indirect_buffer.clone());
 
-        let mut cmd_builder = graph
-            .begin_cmd()
-            .debug_name(format!("Scene {}", self.identifier))
-            .bind_pipeline(&*self.pipeline)
-            .multiview(crate::render::renderer::VIEW_MASK, 0)
-            .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-            .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
-            .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
-            .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-            .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
-            .resource_access(i_node, AccessType::IndexBuffer)
-            .resource_access(v_node, AccessType::VertexBuffer)
-            .resource_access(indirect_node, AccessType::IndirectBuffer);
+        let scene_transform = *transform;
+        let stride = size_of::<DrawIndexedIndirectCommand>() as vk::DeviceSize;
+        let no_cull_offset = stride * self.culled_draw_count as vk::DeviceSize;
 
-        for (idx, texture) in self.textures.iter().enumerate() {
-            let image_node = cmd_builder.bind_resource(texture);
-            cmd_builder.set_shader_resource_access(
-                (2, [idx as u32]),
-                image_node,
-                AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
-            );
+        if self.culled_draw_count > 0 {
+            let mut cmd_builder = graph
+                .begin_cmd()
+                .debug_name(format!("Scene {} (culled)", self.identifier))
+                .bind_pipeline(&*self.culled_pipeline)
+                .multiview(crate::render::renderer::VIEW_MASK, 0)
+                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
+                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
+                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
+                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+                .resource_access(i_node, AccessType::IndexBuffer)
+                .resource_access(v_node, AccessType::VertexBuffer)
+                .resource_access(indirect_node, AccessType::IndirectBuffer);
+
+            for (idx, texture) in self.textures.iter().enumerate() {
+                let image_node = cmd_builder.bind_resource(texture);
+                cmd_builder.set_shader_resource_access(
+                    (2, [idx as u32]),
+                    image_node,
+                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
+                );
+            }
+
+            let draw_count = self.culled_draw_count;
+            cmd_builder.record_cmd(move |cmd| {
+                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
+                    .bind_vertex_buffer(0, v_node, 0)
+                    .push_constants(0, bytes_of(&scene_transform))
+                    .draw_indexed_indirect(indirect_node, 0, draw_count, stride as u32);
+            }).end_cmd();
         }
 
-        let scene_transform = *transform;
-        let draw_count = self.draw_count;
+        if self.no_cull_draw_count > 0 {
+            let mut cmd_builder = graph
+                .begin_cmd()
+                .debug_name(format!("Scene {} (no-cull)", self.identifier))
+                .bind_pipeline(&*self.no_cull_pipeline)
+                .multiview(crate::render::renderer::VIEW_MASK, 0)
+                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
+                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
+                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
+                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+                .resource_access(i_node, AccessType::IndexBuffer)
+                .resource_access(v_node, AccessType::VertexBuffer)
+                .resource_access(indirect_node, AccessType::IndirectBuffer);
 
-        cmd_builder.record_cmd(move |cmd| {
-            cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
-                .bind_vertex_buffer(0, v_node, 0)
-                .push_constants(0, bytes_of(&scene_transform))
-                .draw_indexed_indirect(indirect_node, 0, draw_count, size_of::<DrawIndexedIndirectCommand>() as u32);
-        }).end_cmd();
+            for (idx, texture) in self.textures.iter().enumerate() {
+                let image_node = cmd_builder.bind_resource(texture);
+                cmd_builder.set_shader_resource_access(
+                    (2, [idx as u32]),
+                    image_node,
+                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
+                );
+            }
+
+            let draw_count = self.no_cull_draw_count;
+            cmd_builder.record_cmd(move |cmd| {
+                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
+                    .bind_vertex_buffer(0, v_node, 0)
+                    .push_constants(0, bytes_of(&scene_transform))
+                    .draw_indexed_indirect(indirect_node, no_cull_offset, draw_count, stride as u32);
+            }).end_cmd();
+        }
     }
 
     #[inline]
@@ -182,7 +222,7 @@ impl GltfScene {
         }
     }
 
-    pub fn new(identifier: String, mut asset: ndk::asset::Asset, device: &Device, pipeline: Arc<GraphicsPipeline>) -> Self {
+    pub fn new(identifier: String, mut asset: ndk::asset::Asset, device: &Device, culled_pipeline: Arc<GraphicsPipeline>, no_cull_pipeline: Arc<GraphicsPipeline>) -> Self {
         let (document, buffers, images) = gltf::import_slice(asset.buffer().unwrap()).expect("Failed to parse GLTF asset");
 
         let mut scene_nodes = Vec::new();
@@ -302,6 +342,7 @@ impl GltfScene {
                 metallic_roughness_texture_index,
                 normal_texture_index,
                 base_color_factor,
+                double_sided: material.double_sided()
             }));
         }
 
@@ -368,7 +409,9 @@ impl GltfScene {
                     });
                 }
 
-                let indices: Vec<u32> = indices.into_u32().collect();
+                let mut indices: Vec<u32> = indices.into_u32().collect();
+
+                Self::fix_triangle_winding(&vertices, &mut indices);
 
                 let base_vertex = all_vertices.len() as i32;
                 let first_index = all_indices.len() as u32;
@@ -414,25 +457,34 @@ impl GltfScene {
             scene_roots.push(root_idx);
         }
 
-        Self::update_scene_transforms(&mut scene_nodes, &scene_roots);
-        let (instance_data, draw_commands) = Self::build_draw_data(&scene_nodes, &scene_meshes, &scene_materials);
+        Self::update_scene_transforms(&mut scene_nodes, &mut scene_roots);
 
-        info!("instance_data: {}, draw_commands: {}", instance_data.len(), draw_commands.len());
+        let (instance_data, culled_commands, no_cull_commands) =
+            Self::build_draw_data(&scene_nodes, &scene_meshes, &scene_materials);
+
+        let culled_draw_count = culled_commands.len() as u32;
+        let no_cull_draw_count = no_cull_commands.len() as u32;
+
+        info!("instance_data: {}, culled draws: {}, no-cull draws: {}", instance_data.len(), culled_draw_count, no_cull_draw_count);
         let instance_buffer = Arc::new(Buffer::create_from_slice(
             device,
             BufferUsageFlags::STORAGE_BUFFER,
             bytemuck::cast_slice(&instance_data)
         ).expect("Failed to create instance buffer"));
 
+        let mut all_commands = culled_commands;
+        all_commands.extend(no_cull_commands);
+
         let indirect_buffer = Arc::new(Buffer::create_from_slice(
             device,
             BufferUsageFlags::STORAGE_BUFFER,
-            bytemuck::cast_slice(&draw_commands)
+            bytemuck::cast_slice(&all_commands),
         ).expect("Failed to create indirect buffer"));
 
         GltfScene {
             identifier,
-            pipeline,
+            culled_pipeline,
+            no_cull_pipeline,
             nodes: scene_nodes,
             roots: scene_roots,
             meshes: scene_meshes,
@@ -442,14 +494,20 @@ impl GltfScene {
             specials: scene_specials,
             instance_buffer,
             indirect_buffer,
-            draw_count: draw_commands.len() as u32,
+            culled_draw_count,
+            no_cull_draw_count,
             node_extras
         }
     }
 
-    fn build_draw_data(nodes: &Vec<GltfNode>, meshes: &Vec<GltfMesh>, materials: &Vec<Arc<Material>>) -> (Vec<PushConstants>, Vec<DrawIndexedIndirectCommand>) {
+    fn build_draw_data(
+        nodes: &Vec<GltfNode>,
+        meshes: &Vec<GltfMesh>,
+        materials: &Vec<Arc<Material>>,
+    ) -> (Vec<PushConstants>, Vec<DrawIndexedIndirectCommand>, Vec<DrawIndexedIndirectCommand>) {
         let mut instance_data = Vec::new();
-        let mut draw_commands = Vec::new();
+        let mut culled_commands = Vec::new();
+        let mut no_cull_commands = Vec::new();
 
         for node in nodes {
             let Some(mesh_idx) = node.mesh_index else { continue };
@@ -459,7 +517,7 @@ impl GltfScene {
             }
 
             for primitive in &mesh.primitives {
-                let (base_color_idx, metallic_roughness_idx, normal_map_idx, base_color_factor) =
+                let (base_color_idx, metallic_roughness_idx, normal_map_idx, base_color_factor, double_sided) =
                     if let Some(material_idx) = primitive.material_index {
                         let material = &materials[material_idx];
                         (
@@ -467,38 +525,42 @@ impl GltfScene {
                             material.metallic_roughness_texture_index.map(|i| i as i32).unwrap_or(-1),
                             material.normal_texture_index.map(|i| i as i32).unwrap_or(-1),
                             material.base_color_factor,
+                            material.double_sided,
                         )
                     } else {
-                        (-1, -1, -1, [1.0, 1.0, 1.0, 1.0])
+                        (-1, -1, -1, [1.0, 1.0, 1.0, 1.0], false)
                     };
 
                 let first_instance = instance_data.len() as u32;
-                let material = ShaderMaterial {
-                    base_color_idx,
-                    metallic_roughness_idx,
-                    normal_map_idx,
-                    _pad: 0
-                };
-
-                info!("material: {}, {}, {}, idx: {}", material.base_color_idx, material.metallic_roughness_idx, material.normal_map_idx, first_instance);
 
                 instance_data.push(PushConstants {
                     model_transform: node.global_transform,
-                    material,
+                    material: ShaderMaterial {
+                        base_color_idx,
+                        metallic_roughness_idx,
+                        normal_map_idx,
+                        _pad: 0,
+                    },
                     base_color_factor,
                 });
 
-                draw_commands.push(DrawIndexedIndirectCommand {
+                let command = DrawIndexedIndirectCommand {
                     index_count: primitive.index_count,
                     instance_count: 1,
                     first_index: primitive.first_index,
                     vertex_offset: primitive.base_vertex,
                     first_instance,
-                });
+                };
+
+                if double_sided {
+                    no_cull_commands.push(command);
+                } else {
+                    culled_commands.push(command);
+                }
             }
         }
 
-        (instance_data, draw_commands)
+        (instance_data, culled_commands, no_cull_commands)
     }
 
     fn load_node(nodes: &mut Vec<GltfNode>, specials: &mut Vec<NodeIndex>, node_extras: &mut HashMap<NodeIndex, Extras>, node: &Node) -> NodeIndex {
@@ -548,6 +610,26 @@ impl GltfScene {
         nodes[node_idx].children = child_indices;
 
         node_idx
+    }
+
+    fn fix_triangle_winding(vertices: &[Vertex], indices: &mut [u32]) {
+        for tri in indices.chunks_exact_mut(3) {
+            let [a, b, c] = [tri[0] as usize, tri[1] as usize, tri[2] as usize];
+            let (pa, pb, pc) = (
+                glam::Vec3::from(vertices[a].position),
+                glam::Vec3::from(vertices[b].position),
+                glam::Vec3::from(vertices[c].position),
+            );
+
+            let face_normal = (pb - pa).cross(pc - pa);
+            let avg_normal = glam::Vec3::from(vertices[a].normal)
+                + glam::Vec3::from(vertices[b].normal)
+                + glam::Vec3::from(vertices[c].normal);
+
+            if face_normal.dot(avg_normal) < 0.0 {
+                tri.swap(0, 2);
+            }
+        }
     }
 
     pub fn update_scene_transforms(nodes: &mut Vec<GltfNode>, roots: &Vec<NodeIndex>) {
