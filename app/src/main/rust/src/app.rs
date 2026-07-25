@@ -12,7 +12,7 @@ use {
             Swapchain
         },
         stage::Stage,
-        scene::scene::Scene,
+        scene::scene::{Scene, Skin, SkinType},
         input::{InputState, ExtractedInputs, Hand},
         instance::XrInstance,
         surface::{Surface, SurfaceManager, SurfaceTexture}
@@ -24,7 +24,15 @@ use {
     ndk::asset::AssetManager,
     ndk_sys::{AAssetManager, AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP},
     openxr::{self as xr, EnvironmentBlendMode, FrameState, ViewConfigurationType},
-    vk_graph::driver::ash::vk,
+    vk_graph::{
+        driver::{
+            ash::vk::{self, BufferUsageFlags},
+            buffer::Buffer,
+            image::{Image, ImageInfoBuilder},
+        },
+        pool::hash::HashPool,
+        Graph,
+    },
     log::info,
 };
 
@@ -154,7 +162,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let mut context = XrContext::new(Arc::clone(&ctx));
     let mut renderer = Renderer::new(&context);
     let input = InputState::new(&context.instance, &context.session.session);
-    let scene = Scene::load(&context.instance.device, &asset_manager);
+    let mut scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
 
     let mut surface = Surface::new(env, 1920, 1080);
@@ -162,8 +170,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
     let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
     let surface_node = &scene.assets.gltf_scene.nodes[surface_index];
-    let surface_mesh =
-        &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
+    let surface_mesh = &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
     let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.gltf_scene, surface_mesh);
@@ -227,6 +234,42 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let surface_texture = surface.update_texture(context.instance.device.clone(), &context.instance.android_hardware_buffer);
         if let Some(surface_texture) = surface_texture {
             last_surface_texture = Some(Arc::new(surface_texture));
+        }
+
+        if let Some(data) = jni_state::PENDING_SKIN_IMAGE.lock().unwrap().take() {
+            match image::load_from_memory(&data.png_bytes) {
+                Ok(img) => {
+                    let gpu_image_info = ImageInfoBuilder::default()
+                        .width(img.width())
+                        .height(img.height())
+                        .depth(1)
+                        .format(vk::Format::R8G8B8A8_SRGB)
+                        .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST);
+
+                    let image = Arc::new(Image::create(&context.instance.device, gpu_image_info).unwrap());
+                    let mut graph = Graph::default();
+                    let image_node = graph.bind_resource(&image);
+                    let image_buf = graph.bind_resource(Buffer::create_from_slice(
+                        &context.instance.device,
+                        BufferUsageFlags::TRANSFER_SRC,
+                        img.as_bytes()
+                    ).unwrap());
+                    graph.copy_buffer_to_image(image_buf, image_node);
+                    graph.finalize().queue_submit(&mut HashPool::new(&context.instance.device), 0, 0).expect("Failed to upload images to GPU");
+
+                    *scene.assets.skin.write().unwrap() = Some(Skin {
+                        texture: image.clone(),
+                        skin_type: {
+                            if data.slim {
+                                SkinType::Slim
+                            } else {
+                                SkinType::Wide
+                            }
+                        }
+                    });
+                }
+                Err(err) => log::error!("Bad skin supplied from java-side: {:?}", err)
+            }
         }
 
         let world_to_stage = stage.world_to_stage_matrix();
@@ -303,7 +346,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                         ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
                     }
                 }
-                scene.record_controller(graph, draw_payload, &transform, ray_transform);
+                scene.record_controller(graph, draw_payload, Hand::Left, &transform, ray_transform);
             }
             if let Some(ref transform) = inputs.right.matrix {
                 let transform = stage_to_world * transform;
@@ -313,7 +356,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                         ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
                     }
                 }
-                scene.record_controller(graph, draw_payload, &transform, ray_transform);
+                scene.record_controller(graph, draw_payload, Hand::Right, &transform, ray_transform);
             }
         });
         if result.is_err() {

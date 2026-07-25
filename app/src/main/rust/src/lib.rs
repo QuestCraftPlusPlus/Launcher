@@ -1,11 +1,10 @@
 #![cfg(target_os = "android")]
 extern crate jni;
 
-use jni::objects::JClass;
 use {
     std::{sync::atomic::Ordering, sync::Arc, thread},
-    jni::{objects::JObject, EnvUnowned, jni_mangle},
-    crate::jni_state::JniContext,
+    jni::{objects::{JObject, JByteArray, JClass}, EnvUnowned, jni_mangle, sys::jboolean},
+    crate::jni_state::{JniContext, SkinData},
 };
 
 mod jni_state;
@@ -76,4 +75,21 @@ pub fn stop(
     mut _unowned_env: EnvUnowned,
 ) {
     jni_state::SHOULD_STOP_JNI.store(true, Ordering::Relaxed);
+}
+
+#[jni_mangle("com.qcxr.questcraft.JniBridge")]
+pub fn set_skin_image<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _: JClass<'local>,
+    image_bytes: JByteArray<'local>,
+    slim: jboolean,
+) {
+    unowned_env.with_env(|env| -> jni::errors::Result<_> {
+        let bytes = env.convert_byte_array(&image_bytes)?;
+        *jni_state::PENDING_SKIN_IMAGE.lock().unwrap() = Some(SkinData {
+            png_bytes: bytes, 
+            slim
+        });
+        Ok(())
+    }).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }

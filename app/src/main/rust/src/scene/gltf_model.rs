@@ -184,9 +184,89 @@ impl GltfScene {
                 .resource_access(i_node, AccessType::IndexBuffer)
                 .resource_access(v_node, AccessType::VertexBuffer)
                 .resource_access(indirect_node, AccessType::IndirectBuffer);
-
+            
             for (idx, texture) in self.textures.iter().enumerate() {
                 let image_node = cmd_builder.bind_resource(texture);
+                cmd_builder.set_shader_resource_access(
+                    (2, [idx as u32]),
+                    image_node,
+                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
+                );
+            }
+
+            let draw_count = self.no_cull_draw_count;
+            cmd_builder.record_cmd(move |cmd| {
+                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
+                    .bind_vertex_buffer(0, v_node, 0)
+                    .push_constants(0, bytes_of(&scene_transform))
+                    .draw_indexed_indirect(indirect_node, no_cull_offset, draw_count, stride as u32);
+            }).end_cmd();
+        }
+    }
+
+    pub fn record_with_transform_override_texture(&self, graph: &mut Graph, draw_payload: &DrawPayload, transform: &Mat4, texture: Arc<Image>) {
+        #[cfg(feature = "profiled")]
+        profiling::function_scope!();
+
+        let v_node = graph.bind_resource(self.vertex_buffer.clone());
+        let i_node = graph.bind_resource(self.index_buffer.clone());
+        let instance_node = graph.bind_resource(self.instance_buffer.clone());
+        let indirect_node = graph.bind_resource(self.indirect_buffer.clone());
+
+        let scene_transform = *transform;
+        let stride = size_of::<DrawIndexedIndirectCommand>() as vk::DeviceSize;
+        let no_cull_offset = stride * self.culled_draw_count as vk::DeviceSize;
+
+        if self.culled_draw_count > 0 {
+            let mut cmd_builder = graph
+                .begin_cmd()
+                .debug_name(format!("Scene {} (culled)", self.identifier))
+                .bind_pipeline(&*self.culled_pipeline)
+                .multiview(crate::render::renderer::VIEW_MASK, 0)
+                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
+                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
+                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
+                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+                .resource_access(i_node, AccessType::IndexBuffer)
+                .resource_access(v_node, AccessType::VertexBuffer)
+                .resource_access(indirect_node, AccessType::IndirectBuffer);
+
+            let image_node = cmd_builder.bind_resource(&texture);
+            for (idx, _) in self.textures.iter().enumerate() {
+                cmd_builder.set_shader_resource_access(
+                    (2, [idx as u32]),
+                    image_node,
+                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
+                );
+            }
+
+            let draw_count = self.culled_draw_count;
+            cmd_builder.record_cmd(move |cmd| {
+                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
+                    .bind_vertex_buffer(0, v_node, 0)
+                    .push_constants(0, bytes_of(&scene_transform))
+                    .draw_indexed_indirect(indirect_node, 0, draw_count, stride as u32);
+            }).end_cmd();
+        }
+
+        if self.no_cull_draw_count > 0 {
+            let mut cmd_builder = graph
+                .begin_cmd()
+                .debug_name(format!("Scene {} (no-cull)", self.identifier))
+                .bind_pipeline(&*self.no_cull_pipeline)
+                .multiview(crate::render::renderer::VIEW_MASK, 0)
+                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
+                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
+                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
+                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
+                .resource_access(i_node, AccessType::IndexBuffer)
+                .resource_access(v_node, AccessType::VertexBuffer)
+                .resource_access(indirect_node, AccessType::IndirectBuffer);
+
+            let image_node = cmd_builder.bind_resource(&texture);
+            for (idx, _) in self.textures.iter().enumerate() {
                 cmd_builder.set_shader_resource_access(
                     (2, [idx as u32]),
                     image_node,
@@ -496,7 +576,7 @@ impl GltfScene {
             indirect_buffer,
             culled_draw_count,
             no_cull_draw_count,
-            node_extras
+            node_extras,
         }
     }
 

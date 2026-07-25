@@ -1,27 +1,50 @@
 use {
     crate::{
         render::renderer::{self, DrawPayload},
-        scene::gltf_model::{self, NodeIndex},
+        input::Hand,
+        scene::{
+            gltf_model::{GltfScene, NodeIndex, Vertex}
+        },
     },
     glam::Mat4,
     ndk::asset::AssetManager,
-    std::sync::Arc,
+    std::sync::{
+        Arc,
+        RwLock
+    },
     vk_graph::{
         Graph,
         driver::{
             ash::vk::{self, CullModeFlags, PrimitiveTopology},
             device::Device,
             graphics::{BlendInfo, GraphicsPipeline, GraphicsPipelineInfo},
-            shader::{SamplerInfoBuilder, Shader}
+            shader::{SamplerInfoBuilder, Shader},
+            image::{Image}
         },
     }
 };
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub enum SkinType {
+    Wide,
+    Slim
+}
+
+pub struct Skin {
+    pub texture: Arc<Image>,
+    pub skin_type: SkinType
+}
+
 pub struct Assets {
-    pub gltf_scene: Arc<gltf_model::GltfScene>,
-    controller_scene: Arc<gltf_model::GltfScene>,
-    ray_scene: Arc<gltf_model::GltfScene>,
-    pointer_scene: Arc<gltf_model::GltfScene>,
+    pub gltf_scene: Arc<GltfScene>,
+    pub skin: RwLock<Option<Skin>>,
+    left_controller_scene: Arc<GltfScene>,
+    right_controller_scene: Arc<GltfScene>,
+    slim_left_controller_scene: Arc<GltfScene>,
+    slim_right_controller_scene: Arc<GltfScene>,
+    
+    ray_scene: Arc<GltfScene>,
+    pointer_scene: Arc<GltfScene>,
 }
 
 pub struct Scene {
@@ -52,7 +75,7 @@ impl Scene {
                         [
                             vk::VertexInputBindingDescription {
                                 binding: 0,
-                                stride: size_of::<gltf_model::Vertex>() as u32,
+                                stride: size_of::<Vertex>() as u32,
                                 input_rate: vk::VertexInputRate::VERTEX,
                             }
                         ],
@@ -125,7 +148,7 @@ impl Scene {
                         [
                             vk::VertexInputBindingDescription {
                                 binding: 0,
-                                stride: size_of::<gltf_model::Vertex>() as u32,
+                                stride: size_of::<Vertex>() as u32,
                                 input_rate: vk::VertexInputRate::VERTEX,
                             }
                         ],
@@ -182,22 +205,35 @@ impl Scene {
 
         let simple_gltf_scene = {
             let asset = asset_manager.open(c"meshes/scene.glb").expect("Failed to load 'scene.glb'");
-            Arc::new(gltf_model::GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
 
-        let controller_scene = {
-            let asset = asset_manager.open(c"meshes/controller.glb").expect("Failed to load 'controller.glb'");
-            Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+        let left_controller_scene = {
+            let asset = asset_manager.open(c"meshes/left_controller.glb").expect("Failed to load 'left_controller.glb'");
+            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+        };
+        let right_controller_scene = {
+            let asset = asset_manager.open(c"meshes/right_controller.glb").expect("Failed to load 'right_controller.glb'");
+            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+        };
+
+        let slim_left_controller_scene = {
+            let asset = asset_manager.open(c"meshes/slim_left_controller.glb").expect("Failed to load 'slim_left_controller.glb'");
+            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+        };
+        let slim_right_controller_scene = {
+            let asset = asset_manager.open(c"meshes/slim_right_controller.glb").expect("Failed to load 'slim_right_controller.glb'");
+            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
 
         let ray_scene = {
             let asset = asset_manager.open(c"meshes/ray.glb").expect("Failed to load 'ray.glb'");
-            Arc::new(gltf_model::GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
+            Arc::new(GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
 
         let pointer_scene = {
             let asset = asset_manager.open(c"meshes/pointer.glb").expect("Failed to load 'pointer.glb'");
-            Arc::new(gltf_model::GltfScene::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
+            Arc::new(GltfScene::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
 
         let spawn_matrix = simple_gltf_scene.find_spawnpoint_transform();
@@ -217,7 +253,11 @@ impl Scene {
 
         let assets = Assets {
             gltf_scene: simple_gltf_scene,
-            controller_scene,
+            skin: RwLock::new(None),
+            left_controller_scene,
+            right_controller_scene,
+            slim_left_controller_scene,
+            slim_right_controller_scene,
             ray_scene,
             pointer_scene,
         };
@@ -232,8 +272,24 @@ impl Scene {
         self.assets.gltf_scene.record(graph, draw_payload);
     }
 
-    pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, controller_matrix: &Mat4, ray_transform: Option<Mat4>) {
-        self.assets.controller_scene.record_with_transform(graph, draw_payload, controller_matrix);
+    pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, hand: Hand, controller_matrix: &Mat4, ray_transform: Option<Mat4>) {
+        let skin = self.assets.skin.read().unwrap();
+        let scene = match skin.as_ref().map_or(SkinType::Wide, |skin| { skin.skin_type }) {
+            SkinType::Wide => match hand {
+                Hand::Left => self.assets.left_controller_scene.clone(),
+                Hand::Right => self.assets.right_controller_scene.clone()
+            },
+            SkinType::Slim => match hand {
+                Hand::Left => self.assets.slim_left_controller_scene.clone(),
+                Hand::Right => self.assets.slim_right_controller_scene.clone()
+            }
+        };
+
+        if let Some(ref skin) = *skin {
+            scene.record_with_transform_override_texture(graph, draw_payload, controller_matrix, skin.texture.clone());
+        } else {
+            scene.record_with_transform(graph, draw_payload, controller_matrix);
+        }
         if let Some(ray_transform) = ray_transform {
             self.assets.ray_scene.record_with_transform(graph, draw_payload, &ray_transform);
         }

@@ -11,6 +11,7 @@ public class JniBridge {
 
     public static native void start(MainActivity activity, AssetManager assetManager);
     public static native void stop();
+    public static native void setSkinImage(byte[] imageBytes, boolean slim);
 
     public static void setVulkanSurface(Surface surface, int width, int height) {
         MainActivity.instance().ifPresent(me -> me.setVulkanSurface(surface, width, height));

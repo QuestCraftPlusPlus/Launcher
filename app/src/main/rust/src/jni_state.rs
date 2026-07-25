@@ -15,10 +15,19 @@ use {
         },
     },
     glam::Vec2,
-    std::sync::atomic::AtomicBool
+    std::sync::{
+        Mutex,
+        atomic::AtomicBool
+    }
 };
 
 pub static SHOULD_STOP_JNI: AtomicBool = AtomicBool::new(false);
+pub static PENDING_SKIN_IMAGE: Mutex<Option<SkinData>> = Mutex::new(None);
+
+pub struct SkinData {
+    pub png_bytes: Vec<u8>,
+    pub slim: bool
+}
 
 pub struct JniContext {
     pub jvm: JavaVM,
