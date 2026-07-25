@@ -18,8 +18,7 @@ use {
         surface::{Surface, SurfaceManager, SurfaceTexture}
     },
     jni::{
-        Env,
-        signature::{ReturnType,Primitive::Void}
+        Env
     },
     glam::{Mat4, Quat, Vec2, Vec3},
     ndk::asset::AssetManager,
@@ -136,6 +135,20 @@ impl XrContext {
 
 pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mut AAssetManager) {
     info!("Hello from main loop!");
+
+    #[cfg(feature = "profiled")]
+    let _puffin_server;
+
+    #[cfg(feature = "profiled")]
+    {
+        puffin::set_scopes_on(true);
+        let server_addr = "0.0.0.0:8086";
+
+        _puffin_server = puffin_http::Server::new(server_addr)
+            .expect("Failed to start puffin server.");
+        info!("Puffin server running at {}!!", server_addr);
+    }
+
     let asset_manager = unsafe { AssetManager::from_ptr(NonNull::new(raw_asset_manager).expect("Null asset manager")) };
 
     let mut context = XrContext::new(Arc::clone(&ctx));
@@ -153,7 +166,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
-    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, surface_mesh);
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.gltf_scene, surface_mesh);
 
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();

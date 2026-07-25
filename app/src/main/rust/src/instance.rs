@@ -235,8 +235,9 @@ impl XrInstance {
                                 (*v12_features).descriptor_binding_sampled_image_update_after_bind = vk::TRUE;
                                 (*v12_features).descriptor_binding_partially_bound = vk::TRUE;
                                 (*v12_features).runtime_descriptor_array = vk::TRUE;
-
-                                break;
+                            } else if (*curr).s_type == vk::StructureType::PHYSICAL_DEVICE_FEATURES_2 {
+                                let features = curr as *mut vk::PhysicalDeviceFeatures2;
+                                (*features).features.draw_indirect_first_instance = vk::TRUE;
                             }
                             curr = (*curr).p_next as *mut vk::BaseInStructure;
                         }

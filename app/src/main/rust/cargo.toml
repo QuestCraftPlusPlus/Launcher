@@ -5,7 +5,8 @@ authors = [ "Flamgop" ]
 edition = "2024"
 
 [features]
-default = ["loaded"]
+default = [ "loaded" ]
+profiled = [ "profiling", "puffin", "puffin_http", "vk-graph/profile-with-puffin" ]
 loaded = ["openxr/loaded", "vk-graph/loaded"]
 linked = ["openxr/linked", "vk-graph/linked"]
 
@@ -20,19 +21,27 @@ bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", features = ["bytemuck", "mint"] }
 mint = "0.5"
 openxr = { git = "https://github.com/Ralith/openxrs.git", rev = "294809e4fe7f6f9729c80526f5320d7d70408984", default-features = false, features = ["mint"] }
-vk-graph = "0.14.3"
+vk-graph = { version = "0.14.5" }
+egui = { version = "0.35.0", features = [ "bytemuck" ] }
 
 gltf = { version = "1.4", features = [ "extras", "names" ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+profiling = { version = "1.0", optional = true }
+puffin = { version = "0.20", optional = true }
+puffin_http = { version = "0.17", optional = true }
+
 [lib]
 crate-type = ["staticlib", "dylib"]
 
+[profile.dev]
+debug = true
+
 [profile.release]
+debug = false
 opt-level = 3
 lto = true
 codegen-units = 1
 target-cpu = "generic+v8a"
-strip = true
 panic = "abort"

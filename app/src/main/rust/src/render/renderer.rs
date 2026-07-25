@@ -109,6 +109,8 @@ impl Renderer {
 
     pub fn draw<F>(&mut self, xr_context: &mut XrContext, active_frame: ActiveFrame, payload: FramePayload, record_commands: F) -> Result<(), RenderingError> where
         F: FnOnce(&mut Graph, &DrawPayload) {
+        #[cfg(feature = "profiled")]
+        profiling::scope!("Frame");
         let mut graph = Graph::default();
 
         let swapchain_image = graph.bind_resource(Swapchain::image(&xr_context.swapchain, active_frame.swapchain_image_index as _));
@@ -162,6 +164,8 @@ impl Renderer {
                 ])
             ]
         ).map_err(|_| FailedToEndStream)?;
+        #[cfg(feature = "profiled")]
+        profiling::finish_frame!();
 
         Ok(())
     }

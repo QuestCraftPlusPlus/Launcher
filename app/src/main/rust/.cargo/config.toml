@@ -1,2 +1,5 @@
 [build]
 target = "aarch64-linux-android"
+
+[target.aarch64-linux-android]
+rustflags = ["-C", "force-frame-pointers=yes"]

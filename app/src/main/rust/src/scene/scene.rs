@@ -33,224 +33,171 @@ pub struct Scene {
 
 impl Scene {
     pub fn load(device: &Device, asset_manager: &AssetManager) -> Self {
-        let gltf_pipeline = Arc::new({
-            let mut asset = asset_manager.open(c"shaders/gltf.spv").expect("Failed to load 'gltf' shader");
-            let spv_bytes = asset.buffer().unwrap();
-
-            GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
-                .topology(PrimitiveTopology::TRIANGLE_LIST)
-                .cull_mode(CullModeFlags::NONE)
-                .samples(renderer::MSAA_COUNT), [
-                     Shader::builder()
-                         .entry_name("vertex_main")
-                         .stage(vk::ShaderStageFlags::VERTEX)
-                         .image_sampler((0, 1), SamplerInfoBuilder::default()
-                             .min_filter(vk::Filter::NEAREST)
-                             .mag_filter(vk::Filter::NEAREST)
-                             .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                             .build())
-                         .vertex_input(
-                             [
-                                 vk::VertexInputBindingDescription {
-                                     binding: 0,
-                                     stride: size_of::<gltf_model::Vertex>() as u32,
-                                     input_rate: vk::VertexInputRate::VERTEX,
-                                 }
-                             ],
-                             [
-                                 vk::VertexInputAttributeDescription {
-                                     location: 0,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 0,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 1,
-                                     binding: 0,
-                                     format: vk::Format::R32G32_SFLOAT,
-                                     offset: 12,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 2,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 20,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 3,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 32,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 4,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 44,
-                                 },
-                             ])
-                         .spirv(spv_bytes),
-                     Shader::builder()
-                         .entry_name("fragment_main")
-                         .stage(vk::ShaderStageFlags::FRAGMENT)
-                         .spirv(spv_bytes),
-                ]).expect("Failed to create gltf pipeline")
-        });
-
-        let gltf_unlit_pipeline = Arc::new({
+        let gltf_unlit_shaders = {
             let mut asset = asset_manager.open(c"shaders/gltf_unlit.spv").expect("Failed to load 'gltf_unlit' shader");
             let spv_bytes = asset.buffer().unwrap();
 
+            [
+                Shader::builder()
+                    .entry_name("vertex_main")
+                    .stage(vk::ShaderStageFlags::VERTEX)
+                    .image_sampler((0, 2), SamplerInfoBuilder::default()
+                        .min_filter(vk::Filter::NEAREST)
+                        .mag_filter(vk::Filter::NEAREST)
+                        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                        .build())
+                    .vertex_input(
+                        [
+                            vk::VertexInputBindingDescription {
+                                binding: 0,
+                                stride: size_of::<gltf_model::Vertex>() as u32,
+                                input_rate: vk::VertexInputRate::VERTEX,
+                            }
+                        ],
+                        [
+                            vk::VertexInputAttributeDescription {
+                                location: 0,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 0,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 1,
+                                binding: 0,
+                                format: vk::Format::R32G32_SFLOAT,
+                                offset: 12,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 2,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 20,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 3,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 32,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 4,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 44,
+                            },
+                        ])
+                    .spirv(spv_bytes),
+                Shader::builder()
+                    .entry_name("fragment_main")
+                    .stage(vk::ShaderStageFlags::FRAGMENT)
+                    .spirv(spv_bytes),
+            ]
+        };
+        let gltf_unlit_pipeline = Arc::new(
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
-                .cull_mode(CullModeFlags::NONE)
-                .samples(renderer::MSAA_COUNT), [
-                     Shader::builder()
-                         .entry_name("vertex_main")
-                         .stage(vk::ShaderStageFlags::VERTEX)
-                         .image_sampler((0, 1), SamplerInfoBuilder::default()
-                             .min_filter(vk::Filter::NEAREST)
-                             .mag_filter(vk::Filter::NEAREST)
-                             .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                             .build())
-                         .vertex_input(
-                             [
-                                 vk::VertexInputBindingDescription {
-                                     binding: 0,
-                                     stride: size_of::<gltf_model::Vertex>() as u32,
-                                     input_rate: vk::VertexInputRate::VERTEX,
-                                 }
-                             ],
-                             [
-                                 vk::VertexInputAttributeDescription {
-                                     location: 0,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 0,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 1,
-                                     binding: 0,
-                                     format: vk::Format::R32G32_SFLOAT,
-                                     offset: 12,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 2,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 20,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 3,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 32,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 4,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 44,
-                                 },
-                             ])
-                         .spirv(spv_bytes),
-                     Shader::builder()
-                         .entry_name("fragment_main")
-                         .stage(vk::ShaderStageFlags::FRAGMENT)
-                         .spirv(spv_bytes),
-                 ]).expect("Failed to create gltf_unlit pipeline")
-        });
+                .cull_mode(CullModeFlags::BACK)
+                .samples(renderer::MSAA_COUNT), gltf_unlit_shaders.clone()).expect("Failed to create gltf_unlit pipeline")
+        );
+        let gltf_unlit_no_cull_pipeline = Arc::new(
+            GraphicsPipeline::create(device, gltf_unlit_pipeline.info().into_builder()
+                .cull_mode(CullModeFlags::NONE), gltf_unlit_shaders).expect("Failed to create gltf_unlit_no_cull pipeline")
+        );
 
-        let gltf_unlit_translucent_pipeline = Arc::new({
+        let gltf_unlit_translucent_shaders = {
             let mut asset = asset_manager.open(c"shaders/gltf_unlit_translucent.spv").expect("Failed to load 'gltf_unlit_translucent' shader");
             let spv_bytes = asset.buffer().unwrap();
 
+            [
+                Shader::builder()
+                    .entry_name("vertex_main")
+                    .stage(vk::ShaderStageFlags::VERTEX)
+                    .image_sampler((0, 2), SamplerInfoBuilder::default()
+                        .min_filter(vk::Filter::NEAREST)
+                        .mag_filter(vk::Filter::NEAREST)
+                        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                        .build())
+                    .vertex_input(
+                        [
+                            vk::VertexInputBindingDescription {
+                                binding: 0,
+                                stride: size_of::<gltf_model::Vertex>() as u32,
+                                input_rate: vk::VertexInputRate::VERTEX,
+                            }
+                        ],
+                        [
+                            vk::VertexInputAttributeDescription {
+                                location: 0,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 0,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 1,
+                                binding: 0,
+                                format: vk::Format::R32G32_SFLOAT,
+                                offset: 12,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 2,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 20,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 3,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 32,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 4,
+                                binding: 0,
+                                format: vk::Format::R32G32B32_SFLOAT,
+                                offset: 44,
+                            },
+                        ])
+                    .spirv(spv_bytes),
+                Shader::builder()
+                    .entry_name("fragment_main")
+                    .stage(vk::ShaderStageFlags::FRAGMENT)
+                    .spirv(spv_bytes),
+            ]
+        };
+        let gltf_unlit_translucent_pipeline = Arc::new(
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
                 .blend(BlendInfo::ALPHA)
                 .samples(renderer::MSAA_COUNT)
-                .cull_mode(CullModeFlags::NONE), [
-                     Shader::builder()
-                         .entry_name("vertex_main")
-                         .stage(vk::ShaderStageFlags::VERTEX)
-                         .image_sampler((0, 1), SamplerInfoBuilder::default()
-                             .min_filter(vk::Filter::NEAREST)
-                             .mag_filter(vk::Filter::NEAREST)
-                             .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                             .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                             .build())
-                         .vertex_input(
-                             [
-                                 vk::VertexInputBindingDescription {
-                                     binding: 0,
-                                     stride: size_of::<gltf_model::Vertex>() as u32,
-                                     input_rate: vk::VertexInputRate::VERTEX,
-                                 }
-                             ],
-                             [
-                                 vk::VertexInputAttributeDescription {
-                                     location: 0,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 0,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 1,
-                                     binding: 0,
-                                     format: vk::Format::R32G32_SFLOAT,
-                                     offset: 12,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 2,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 20,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 3,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 32,
-                                 },
-                                 vk::VertexInputAttributeDescription {
-                                     location: 4,
-                                     binding: 0,
-                                     format: vk::Format::R32G32B32_SFLOAT,
-                                     offset: 44,
-                                 },
-                             ])
-                         .spirv(spv_bytes),
-                     Shader::builder()
-                         .entry_name("fragment_main")
-                         .stage(vk::ShaderStageFlags::FRAGMENT)
-                         .spirv(spv_bytes),
-                ]).expect("Failed to create gltf_unlit pipeline")
-        });
-
+                .cull_mode(CullModeFlags::BACK), gltf_unlit_translucent_shaders.clone()).expect("Failed to create gltf_unlit_translucent pipeline")
+        );
+        let gltf_unlit_translucent_no_cull_pipeline = Arc::new(
+            GraphicsPipeline::create(device, gltf_unlit_translucent_pipeline.info().into_builder()
+                .cull_mode(CullModeFlags::NONE), gltf_unlit_translucent_shaders).expect("Failed to create gltf_unlit_translucent_no_cull")
+        );
 
         let simple_gltf_scene = {
             let asset = asset_manager.open(c"meshes/scene.glb").expect("Failed to load 'scene.glb'");
-            Arc::new(gltf_model::GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone()))
+            Arc::new(gltf_model::GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
 
         let controller_scene = {
             let asset = asset_manager.open(c"meshes/controller.glb").expect("Failed to load 'controller.glb'");
-            Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone()))
+            Arc::new(gltf_model::GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
 
         let ray_scene = {
             let asset = asset_manager.open(c"meshes/ray.glb").expect("Failed to load 'ray.glb'");
-            Arc::new(gltf_model::GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone()))
+            Arc::new(gltf_model::GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
 
         let pointer_scene = {
             let asset = asset_manager.open(c"meshes/pointer.glb").expect("Failed to load 'pointer.glb'");
-            Arc::new(gltf_model::GltfScene::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone()))
+            Arc::new(gltf_model::GltfScene::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
 
         let spawn_matrix = simple_gltf_scene.find_spawnpoint_transform();

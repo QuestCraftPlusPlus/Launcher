@@ -11,12 +11,13 @@ use {
 mod jni_state;
 mod app;
 mod input;
-pub mod render;
+mod render;
 mod scene;
 mod instance;
 mod stage;
 mod xr_util;
 mod surface;
+mod egui;
 
 #[jni_mangle("com.qcxr.questcraft.JniBridge")]
 pub fn start<'local>(
@@ -33,20 +34,17 @@ pub fn start<'local>(
 
     log::info!("Hello World!");
     std::panic::set_hook(Box::new(|panic_info| {
-        let payload = panic_info.payload();
-        let message = if let Some(s) = payload.downcast_ref::<&str>() {
-            *s
-        } else if let Some(s) = payload.downcast_ref::<String>() {
-            s.as_str()
-        } else {
-            "Weird panic payload"
-        };
+        let message = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| panic_info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("Unknown panic payload");
 
-        let location = panic_info.location()
-            .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
-            .unwrap_or_else(|| "unknown location".to_string());
+        let thread_name = std::thread::current().name().unwrap_or("main").to_string();
+        let error = format!("Exception in thread \"{}\": {}\n", thread_name, message);
 
-        log::error!("!! PANIC !! at [{}]: {}", location, message);
+        log::error!("!! PANIC !!\n{}", error);
     }));
 
     unowned_env.with_env(|env| -> jni::errors::Result<_> {
