@@ -165,15 +165,19 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let mut scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
 
+    let names: Vec<&str> = scene.assets.animated_asset.animation_names().collect();
+    info!("Animations: {:?}", names);
+    let mut animator = scene.assets.animated_instance.create_animation_player("Idle", true).expect("Failed to get Idle animator");
+
     let mut surface = Surface::new(env, 1920, 1080);
     ctx.set_surface(env, &surface);
 
     let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
-    let surface_node = &scene.assets.gltf_scene.nodes[surface_index];
-    let surface_mesh = &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
+    let surface_node = &scene.assets.scene_instance.nodes[surface_index];
+    let surface_mesh = &scene.assets.scene_asset.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
-    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.gltf_scene, surface_mesh);
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.scene_asset, surface_mesh);
 
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();
@@ -272,6 +276,9 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             }
         }
 
+        animator.advance(delta_time, &scene.assets.animated_asset.animations[animator.clip_index]);
+        scene.assets.animated_instance.animate(&context.instance.device, &animator);
+
         let world_to_stage = stage.world_to_stage_matrix();
         let stage_to_world = world_to_stage.inverse();
         let eye_pos = stage_to_world.transform_point3(eye_pos);
@@ -332,6 +339,9 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
+            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
+                scene.assets.animated_instance.record_with_transform_override_texture(graph, draw_payload, &Mat4::IDENTITY, skin.texture.clone());
+            }
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, surface_transform);
             }

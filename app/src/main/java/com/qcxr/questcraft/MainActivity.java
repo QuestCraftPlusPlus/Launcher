@@ -46,7 +46,7 @@ public class MainActivity extends ComponentActivity {
         // JudgeLib Init
         initJudgeLib();
 
-        MojangSkinFetcher.fetchSkin("Slim").whenComplete((result,$) -> {
+        MojangSkinFetcher.fetchSkin("flamgop").whenComplete((result,$) -> {
             JniBridge.setSkinImage(result.skinPngBytes(), result.slim());
         });
 

@@ -3,7 +3,7 @@ use {
         render::renderer::{self, DrawPayload},
         input::Hand,
         scene::{
-            gltf_model::{GltfScene, NodeIndex, Vertex}
+            gltf_model::{GltfAsset, GltfInstance, NodeIndex, Vertex}
         },
     },
     glam::Mat4,
@@ -35,16 +35,28 @@ pub struct Skin {
     pub skin_type: SkinType
 }
 
+// do NOT delete these "unused" fields, they need to be dropped with the Assets struct (and not earlier) or else everything breaks
 pub struct Assets {
-    pub gltf_scene: Arc<GltfScene>,
+    pub scene_asset: Arc<GltfAsset>,
+    pub scene_instance: GltfInstance,
     pub skin: RwLock<Option<Skin>>,
-    left_controller_scene: Arc<GltfScene>,
-    right_controller_scene: Arc<GltfScene>,
-    slim_left_controller_scene: Arc<GltfScene>,
-    slim_right_controller_scene: Arc<GltfScene>,
+
+    pub animated_asset: Arc<GltfAsset>,
+    pub animated_instance: GltfInstance,
+
+    left_controller_scene_asset: Arc<GltfAsset>,
+    left_controller_scene_instance: GltfInstance,
+    right_controller_scene_asset: Arc<GltfAsset>,
+    right_controller_scene_instance: GltfInstance,
+    slim_left_controller_scene_asset: Arc<GltfAsset>,
+    slim_left_controller_scene_instance: GltfInstance,
+    slim_right_controller_scene_asset: Arc<GltfAsset>,
+    slim_right_controller_scene_instance: GltfInstance,
     
-    ray_scene: Arc<GltfScene>,
-    pointer_scene: Arc<GltfScene>,
+    ray_scene_asset: Arc<GltfAsset>,
+    ray_scene_instance: GltfInstance,
+    pointer_scene_asset: Arc<GltfAsset>,
+    pointer_scene_instance: GltfInstance,
 }
 
 pub struct Scene {
@@ -64,7 +76,7 @@ impl Scene {
                 Shader::builder()
                     .entry_name("vertex_main")
                     .stage(vk::ShaderStageFlags::VERTEX)
-                    .image_sampler((0, 2), SamplerInfoBuilder::default()
+                    .image_sampler((0, 3), SamplerInfoBuilder::default()
                         .min_filter(vk::Filter::NEAREST)
                         .mag_filter(vk::Filter::NEAREST)
                         .address_mode_u(vk::SamplerAddressMode::REPEAT)
@@ -109,6 +121,18 @@ impl Scene {
                                 binding: 0,
                                 format: vk::Format::R32G32B32_SFLOAT,
                                 offset: 44,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 5,
+                                binding: 0,
+                                format: vk::Format::R32G32B32A32_UINT,
+                                offset: 56,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 6,
+                                binding: 0,
+                                format: vk::Format::R32G32B32A32_SFLOAT,
+                                offset: 72,
                             },
                         ])
                     .spirv(spv_bytes),
@@ -137,7 +161,7 @@ impl Scene {
                 Shader::builder()
                     .entry_name("vertex_main")
                     .stage(vk::ShaderStageFlags::VERTEX)
-                    .image_sampler((0, 2), SamplerInfoBuilder::default()
+                    .image_sampler((0, 3), SamplerInfoBuilder::default()
                         .min_filter(vk::Filter::NEAREST)
                         .mag_filter(vk::Filter::NEAREST)
                         .address_mode_u(vk::SamplerAddressMode::REPEAT)
@@ -183,6 +207,18 @@ impl Scene {
                                 format: vk::Format::R32G32B32_SFLOAT,
                                 offset: 44,
                             },
+                            vk::VertexInputAttributeDescription {
+                                location: 5,
+                                binding: 0,
+                                format: vk::Format::R32G32B32A32_UINT,
+                                offset: 56,
+                            },
+                            vk::VertexInputAttributeDescription {
+                                location: 6,
+                                binding: 0,
+                                format: vk::Format::R32G32B32A32_SFLOAT,
+                                offset: 72,
+                            },
                         ])
                     .spirv(spv_bytes),
                 Shader::builder()
@@ -203,40 +239,53 @@ impl Scene {
                 .cull_mode(CullModeFlags::NONE), gltf_unlit_translucent_shaders).expect("Failed to create gltf_unlit_translucent_no_cull")
         );
 
-        let simple_gltf_scene = {
+        let scene_asset = {
             let asset = asset_manager.open(c"meshes/scene.glb").expect("Failed to load 'scene.glb'");
-            Arc::new(GltfScene::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
+        let scene_instance = GltfInstance::new(scene_asset.clone(), device);
 
-        let left_controller_scene = {
+        let animated_asset = {
+            let asset = asset_manager.open(c"meshes/animated.glb").expect("Failed to load 'animated.glb'");
+            Arc::new(GltfAsset::new("Animated".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
+        };
+        let animated_instance = GltfInstance::new(animated_asset.clone(), device);
+
+        let left_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/left_controller.glb").expect("Failed to load 'left_controller.glb'");
-            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let right_controller_scene = {
+        let left_controller_scene_instance = GltfInstance::new(left_controller_scene_asset.clone(), device);
+        let right_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/right_controller.glb").expect("Failed to load 'right_controller.glb'");
-            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
+        let right_controller_scene_instance = GltfInstance::new(right_controller_scene_asset.clone(), device);
 
-        let slim_left_controller_scene = {
+        let slim_left_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/slim_left_controller.glb").expect("Failed to load 'slim_left_controller.glb'");
-            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let slim_right_controller_scene = {
+        let slim_left_controller_scene_instance = GltfInstance::new(slim_left_controller_scene_asset.clone(), device);
+        let slim_right_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/slim_right_controller.glb").expect("Failed to load 'slim_right_controller.glb'");
-            Arc::new(GltfScene::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
+        let slim_right_controller_scene_instance = GltfInstance::new(slim_right_controller_scene_asset.clone(), device);
 
-        let ray_scene = {
+        let ray_scene_asset = {
             let asset = asset_manager.open(c"meshes/ray.glb").expect("Failed to load 'ray.glb'");
-            Arc::new(GltfScene::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
+        let ray_scene_instance = GltfInstance::new(ray_scene_asset.clone(), device);
 
-        let pointer_scene = {
+        let pointer_scene_asset = {
             let asset = asset_manager.open(c"meshes/pointer.glb").expect("Failed to load 'pointer.glb'");
-            Arc::new(GltfScene::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
+            Arc::new(GltfAsset::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
+        let pointer_scene_instance = GltfInstance::new(pointer_scene_asset.clone(), device);
 
-        let spawn_matrix = simple_gltf_scene.find_spawnpoint_transform();
+        let spawn_matrix = scene_instance.find_spawnpoint_transform();
         if let Some(spawn_matrix) = &spawn_matrix {
             let (_, _, translation) = spawn_matrix.to_scale_rotation_translation();
             log::info!("Spawn point found at position coordinates: {:?}", translation);
@@ -244,7 +293,7 @@ impl Scene {
             log::warn!("No special spawn points defined within the scene's asset metadata maps.");
         }
 
-        let surface_index = simple_gltf_scene.find_surface_index();
+        let surface_index = scene_instance.find_surface_index();
         if let Some(surface_index) = &surface_index {
             log::info!("Surface index found at index: {:?}", surface_index);
         } else {
@@ -252,14 +301,23 @@ impl Scene {
         }
 
         let assets = Assets {
-            gltf_scene: simple_gltf_scene,
+            scene_asset,
+            scene_instance,
             skin: RwLock::new(None),
-            left_controller_scene,
-            right_controller_scene,
-            slim_left_controller_scene,
-            slim_right_controller_scene,
-            ray_scene,
-            pointer_scene,
+            animated_asset,
+            animated_instance,
+            left_controller_scene_asset,
+            left_controller_scene_instance,
+            right_controller_scene_asset,
+            right_controller_scene_instance,
+            slim_left_controller_scene_asset,
+            slim_left_controller_scene_instance,
+            slim_right_controller_scene_asset,
+            slim_right_controller_scene_instance,
+            ray_scene_asset,
+            ray_scene_instance,
+            pointer_scene_asset,
+            pointer_scene_instance,
         };
         Scene {
             assets,
@@ -269,19 +327,19 @@ impl Scene {
     }
 
     pub fn record(&self, graph: &mut Graph, draw_payload: &DrawPayload) {
-        self.assets.gltf_scene.record(graph, draw_payload);
+        self.assets.scene_instance.record(graph, draw_payload);
     }
 
     pub fn record_controller(&self, graph: &mut Graph, draw_payload: &DrawPayload, hand: Hand, controller_matrix: &Mat4, ray_transform: Option<Mat4>) {
         let skin = self.assets.skin.read().unwrap();
         let scene = match skin.as_ref().map_or(SkinType::Wide, |skin| { skin.skin_type }) {
             SkinType::Wide => match hand {
-                Hand::Left => self.assets.left_controller_scene.clone(),
-                Hand::Right => self.assets.right_controller_scene.clone()
+                Hand::Left => &self.assets.left_controller_scene_instance,
+                Hand::Right => &self.assets.right_controller_scene_instance
             },
             SkinType::Slim => match hand {
-                Hand::Left => self.assets.slim_left_controller_scene.clone(),
-                Hand::Right => self.assets.slim_right_controller_scene.clone()
+                Hand::Left => &self.assets.slim_left_controller_scene_instance,
+                Hand::Right => &self.assets.slim_right_controller_scene_instance
             }
         };
 
@@ -291,11 +349,11 @@ impl Scene {
             scene.record_with_transform(graph, draw_payload, controller_matrix);
         }
         if let Some(ray_transform) = ray_transform {
-            self.assets.ray_scene.record_with_transform(graph, draw_payload, &ray_transform);
+            self.assets.ray_scene_instance.record_with_transform(graph, draw_payload, &ray_transform);
         }
     }
 
     pub fn record_pointer(&self, graph: &mut Graph, draw_payload: &DrawPayload, pointer_matrix: &Mat4) {
-        self.assets.pointer_scene.record_with_transform(graph, draw_payload, pointer_matrix);
+        self.assets.pointer_scene_instance.record_with_transform(graph, draw_payload, pointer_matrix);
     }
 }
