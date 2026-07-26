@@ -35,7 +35,6 @@ pub struct Skin {
     pub skin_type: SkinType
 }
 
-// do NOT delete these "unused" fields, they need to be dropped with the Assets struct (and not earlier) or else everything breaks
 pub struct Assets {
     pub skin: RwLock<Option<Skin>>,
 
@@ -45,6 +44,7 @@ pub struct Assets {
     pub animated_asset: Arc<GltfAsset>,
     pub animated_instance: GltfInstance,
 
+    // these _asset fields don't really need to be here because GltfInstance holds a reference, but I don't really want to delete them in case we want to add animations to them (which would require an accessible reference to the asset)
     left_controller_scene_asset: Arc<GltfAsset>,
     left_controller_scene_instance: GltfInstance,
     right_controller_scene_asset: Arc<GltfAsset>,
