@@ -37,9 +37,10 @@ pub struct Skin {
 
 // do NOT delete these "unused" fields, they need to be dropped with the Assets struct (and not earlier) or else everything breaks
 pub struct Assets {
+    pub skin: RwLock<Option<Skin>>,
+
     pub scene_asset: Arc<GltfAsset>,
     pub scene_instance: GltfInstance,
-    pub skin: RwLock<Option<Skin>>,
 
     pub animated_asset: Arc<GltfAsset>,
     pub animated_instance: GltfInstance,
@@ -301,9 +302,9 @@ impl Scene {
         }
 
         let assets = Assets {
+            skin: RwLock::new(None),
             scene_asset,
             scene_instance,
-            skin: RwLock::new(None),
             animated_asset,
             animated_instance,
             left_controller_scene_asset,
