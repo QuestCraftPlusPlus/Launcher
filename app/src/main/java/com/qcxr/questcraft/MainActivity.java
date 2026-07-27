@@ -66,8 +66,8 @@ public class MainActivity extends ComponentActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
         JniBridge.stop();
+        super.onDestroy();
     }
 
     private void deviceCodeCallback(DeviceCode res) {

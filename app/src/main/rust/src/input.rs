@@ -9,6 +9,7 @@ pub struct Actions {
     left_pos: xr::Action<xr::Posef>,
     right_click: xr::Action<f32>,
     left_click: xr::Action<f32>,
+    menu: xr::Action<bool>,
 
     left_thumbstick: xr::Action<xr::Vector2f>,
     right_thumbstick: xr::Action<xr::Vector2f>,
@@ -45,6 +46,7 @@ pub struct ExtractedInputs {
 
     pub left: HandedInputState,
     pub right: HandedInputState,
+    pub menu: bool,
 }
 
 impl InputState {
@@ -70,6 +72,10 @@ impl InputState {
         let left_thumbstick = action_set
             .create_action::<xr::Vector2f>("left_thumbstick", "Left Thumbstick", &[])
             .unwrap();
+
+        let menu = action_set
+            .create_action::<bool>("menu", "Menu Button", &[])
+            .unwrap();
         instance.suggest_interaction_profile_bindings(
             instance.string_to_path("/interaction_profiles/oculus/touch_controller")
                 .unwrap(),
@@ -80,6 +86,7 @@ impl InputState {
                 xr::Binding::new(&left_thumbstick, instance.string_to_path("/user/hand/left/input/thumbstick").unwrap()),
                 xr::Binding::new(&right_click, instance.string_to_path("/user/hand/right/input/trigger/value").unwrap()),
                 xr::Binding::new(&left_click, instance.string_to_path("/user/hand/left/input/trigger/value").unwrap()),
+                xr::Binding::new(&menu, instance.string_to_path("/user/hand/left/input/menu/click").unwrap()),
             ]
         ).unwrap();
         session.attach_action_sets(&[&action_set]).unwrap();
@@ -99,7 +106,8 @@ impl InputState {
                 left_click,
                 right_click,
                 left_thumbstick,
-                right_thumbstick
+                right_thumbstick,
+                menu
             },
             spaces: Spaces {
                 right_space,
@@ -131,6 +139,11 @@ impl InputState {
         let mut left_click_state = false;
         if let Ok(state) = self.actions.left_click.state(session, xr::Path::NULL) {
             left_click_state = state.current_state > 0.5;
+        }
+
+        let mut menu = false;
+        if let Ok(state) = self.actions.menu.state(session, xr::Path::NULL) {
+            menu = state.current_state;
         }
 
         let left_hand_matrix = self.actions.left_pos
@@ -168,6 +181,7 @@ impl InputState {
                 click: right_click_state,
                 matrix: right_hand_matrix,
             },
+            menu
         }
     }
 }

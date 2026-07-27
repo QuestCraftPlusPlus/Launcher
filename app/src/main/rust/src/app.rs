@@ -158,9 +158,10 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     }
 
     let asset_manager = unsafe { AssetManager::from_ptr(NonNull::new(raw_asset_manager).expect("Null asset manager")) };
+    let internal_files_directory = ctx.get_internal_files_dir(env).expect("Failed to get a good internal files directory");
 
     let mut context = XrContext::new(Arc::clone(&ctx));
-    let mut renderer = Renderer::new(&context);
+    let mut renderer = Renderer::new(&context, internal_files_directory.as_path());
     let input = InputState::new(&context.instance, &context.session.session);
     let mut scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
@@ -292,6 +293,14 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             previous_inputs = None;
         }
 
+        #[cfg(feature = "profiled")]
+        if let Some(previous_inputs) = previous_inputs {
+            if inputs.menu && !previous_inputs.menu {
+                info!("Asking renderer to capture next frame...");
+                renderer.request_fixture();
+            }
+        }
+
         let hand_inputs = if primary_hand == Hand::Right {
             inputs.right
         } else  {
@@ -333,7 +342,6 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 renderer::projection_transform(views[0]),
                 renderer::projection_transform(views[1]),
             ],
-            predicted_display_time: active_frame.predicted_display_time,
             xr_views: &views,
         };
 
