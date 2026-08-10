@@ -4,6 +4,8 @@ struct VertexInput {
     float3 normal : NORMAL;
     float3 tangent : TANGENT;
     float3 bitangent : BITANGENT;
+    uint4 joint_indices : JOINT_INDICES;
+    float4 joint_weights : JOINT_WEIGHTS;
 };
 
 struct XrCameraUbo
@@ -27,10 +29,7 @@ struct PushConstants {
     column_major float4x4 model_transform;
     float4 base_color_factor;
     int4 material;
-    // int base_color_idx;
-    // int metallic_roughness_idx;
-    // int normal_map_idx;
-    // int pad0;
+    int4 skin_data;
 };
 
 [[vk::binding(0, 0)]]
@@ -40,6 +39,9 @@ ConstantBuffer<XrCameraUbo> camera;
 StructuredBuffer<PushConstants, Std430DataLayout> draw_data;
 
 [[vk::binding(2, 0)]]
+StructuredBuffer<float4x4, Std430DataLayout> joint_matrices;
+
+[[vk::binding(3, 0)]]
 Sampler2D texture_heap[8192];
 
 [shader("vertex")]
@@ -53,8 +55,22 @@ VertexStageOutput vertex_main(
     VertexStageOutput output;
     PushConstants pc = draw_data[instance_id];
 
+    float4 local_pos = float4(input.position, 1.0);
+
+    if (pc.skin_data.x >= 0) {
+        int offset = pc.skin_data.x;
+
+        float4x4 skin_matrix =
+            input.joint_weights.x * joint_matrices[offset + input.joint_indices.x] +
+            input.joint_weights.y * joint_matrices[offset + input.joint_indices.y] +
+            input.joint_weights.z * joint_matrices[offset + input.joint_indices.z] +
+            input.joint_weights.w * joint_matrices[offset + input.joint_indices.w];
+
+        local_pos = mul(skin_matrix, local_pos);
+    }
+
     float4x4 final_transform = mul(transform, pc.model_transform);
-    float4 world_pos = mul(final_transform, float4(input.position, 1.0));
+    float4 world_pos = mul(final_transform, local_pos);
     float4 view_pos = mul(camera.view_matrices[view_id], world_pos);
 
     output.sv_position = mul(camera.projection_matrices[view_id], view_pos);
@@ -102,7 +118,8 @@ float4 fragment_main(VertexStageOutput input) : SV_Target {
         } else {
             tex_albedo = float4(0.0);
         }
-        
+
+        clip(tex_albedo.a - 0.1);
         albedo *= tex_albedo;
     }
 

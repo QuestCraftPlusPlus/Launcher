@@ -1,7 +1,7 @@
 use {
     crate::{
         render::renderer::{self, DrawPayload},
-        scene::gltf_model::{self, GltfPrimitive}
+        scene::gltf_model::{self, GltfPrimitive, GltfAsset}
     },
     bytemuck::{Pod, Zeroable, bytes_of},
     glam::{Mat4, Vec2, Vec3},
@@ -21,7 +21,6 @@ use {
         Graph, LoadOp, StoreOp
     }
 };
-use crate::scene::gltf_model::GltfScene;
 
 pub struct SurfaceTexture {
     pub image: Arc<Image>,
@@ -53,18 +52,19 @@ fn find_memory_type_index(device: &Device, type_bits: u32, properties: vk::Memor
             return i;
         }
     }
-    panic!("Failed to find suitable memory type for AHardwareBuffer");
+    panic!("Failed to find suitable memory type for AHardwareBuffer, properties: {:?}", mem_properties);
 }
 
 impl Surface {
     pub fn new(env: &mut Env<'_>, width: u32, height: u32) -> Self {
+
         let image_reader = unsafe {
             let mut image_reader = std::ptr::null_mut();
             let status = AImageReader_newWithUsage(
                 width as i32,
                 height as i32,
                 0x00000001, // this is format RBGA_8888, see https://developer.android.com/reference/android/graphics/ImageFormat for constant values
-                1u64 << 8, // this is usage GPU_SAMPLED_IMAGE, see https://developer.android.com/ndk/reference/group/a-hardware-buffer for constant values
+                (1u64 << 8) | (1u64 << 9), // this is usage GPU_SAMPLED_IMAGE, see https://developer.android.com/ndk/reference/group/a-hardware-buffer for constant values
                 4,
                 &mut image_reader
             );
@@ -171,7 +171,14 @@ impl Surface {
             let image_requirements_info = vk::ImageMemoryRequirementsInfo2::default().image(temp_image);
             device.get_image_memory_requirements2(&image_requirements_info, &mut memory_requirements2);
 
-            let supported_memory_types = properties.memory_type_bits & memory_requirements2.memory_requirements.memory_type_bits;
+            let mut supported_memory_types = properties.memory_type_bits & memory_requirements2.memory_requirements.memory_type_bits;
+            if supported_memory_types == 0 {
+                supported_memory_types = if properties.memory_type_bits != 0 {
+                    properties.memory_type_bits
+                } else {
+                    memory_requirements2.memory_requirements.memory_type_bits
+                };
+            }
 
             let mut import_buffer_info = vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(hw_buffer as *mut _);
             let mut dedicated_alloc_info = vk::MemoryDedicatedAllocateInfo::default().image(temp_image);
@@ -233,7 +240,7 @@ impl Drop for Surface {
 
 pub struct SurfaceManager<'a> {
     pub pipeline: Arc<GraphicsPipeline>,
-    pub scene: &'a GltfScene,
+    pub scene: &'a GltfAsset,
     pub primitive: &'a GltfPrimitive,
 }
 
@@ -250,7 +257,7 @@ pub struct RaycastHit {
 }
 
 impl<'a> SurfaceManager<'a> {
-    pub fn new(asset_manager: &AssetManager, device: &Device, scene: &'a GltfScene, primitive: &'a GltfPrimitive) -> Self {
+    pub fn new(asset_manager: &AssetManager, device: &Device, scene: &'a GltfAsset, primitive: &'a GltfPrimitive) -> Self {
         let pipeline = Arc::new({
             let mut asset = asset_manager.open(c"shaders/gltf_surface.spv").expect("Failed to load 'gltf_surface' shader");
             let spv_bytes = asset.buffer().unwrap();

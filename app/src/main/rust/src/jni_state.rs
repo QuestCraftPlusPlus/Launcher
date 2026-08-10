@@ -2,10 +2,11 @@ use {
     crate::surface::Surface,
     ndk_sys::_bindgen_ty_22,
     jni::{
-        JavaVM, Env, jni_str,
+        JavaVM, Env, jni_str, jni_sig,
         objects::{
             JClass,
             JObject,
+            JString,
             JStaticMethodID,
         },
         refs::Global,
@@ -15,10 +16,22 @@ use {
         },
     },
     glam::Vec2,
-    std::sync::atomic::AtomicBool
+    std::{
+        path::PathBuf,
+        sync::{
+            Mutex,
+            atomic::AtomicBool
+        }
+    }
 };
 
 pub static SHOULD_STOP_JNI: AtomicBool = AtomicBool::new(false);
+pub static PENDING_SKIN_IMAGE: Mutex<Option<SkinData>> = Mutex::new(None);
+
+pub struct SkinData {
+    pub png_bytes: Vec<u8>,
+    pub slim: bool
+}
 
 pub struct JniContext {
     pub jvm: JavaVM,
@@ -102,5 +115,32 @@ impl JniContext {
                 &[pointer_id, action_val, norm_x, norm_y]
             ).expect("Failed to process pointer event");
         }
+    }
+
+    pub fn get_internal_files_dir(
+        &self,
+        env: &mut Env<'_>
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let file_obj = env
+            .call_method(
+                self.main_activity.as_obj(),
+                jni_str!("getFilesDir"),
+                jni_sig!("()Ljava/io/File;"),
+                &[],
+            )?
+            .l()?;
+
+        let path_jstring = env
+            .call_method(
+                file_obj,
+                jni_str!("getAbsolutePath"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+
+        let path_rust_string = unsafe { JString::from_raw(env, path_jstring.as_raw()) }.to_string();
+
+        Ok(PathBuf::from(path_rust_string))
     }
 }

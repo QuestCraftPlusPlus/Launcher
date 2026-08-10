@@ -1,3 +1,4 @@
+use std::path::Path;
 use {
     crate::{
         app::XrContext,
@@ -33,31 +34,26 @@ use {
 pub enum RenderingError {
     DriverError,
     Sleeping,
-    FailedToLocateViews,
-    FailedToMapBuffer,
     FailedToEndStream
 }
 
-pub struct Renderer {
+pub struct Renderer<'a> {
     resolution: vk::Extent2D,
 
     pool: LazyPool,
     swapchain_queues: Box<[Option<Fence>]>,
     swapchain_rect: xr::Rect2Di,
+    fixture_path: &'a Path,
+    capture_fixture: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum AcquireError {
     DriverError,
-    Timeout,
 }
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum PollError {
-    DriverError, Exiting, LossPending,
-}
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum SyncError {
-    DriverError
+    Exiting, LossPending,
 }
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum WaitError {
@@ -79,7 +75,6 @@ pub struct ActiveFrame {
 pub struct FramePayload<'a> {
     pub view_matrices: [Mat4; 2],
     pub projection_matrices: [Mat4; 2],
-    pub predicted_display_time: openxr::Time,
     pub xr_views: &'a [openxr::View],
 }
 
@@ -92,7 +87,7 @@ pub struct DrawPayload<'a> {
 pub const VIEW_MASK: u32 = !(!0 << 2);
 pub const MSAA_COUNT: SampleCount = SampleCount::Type4;
 
-impl Renderer {
+impl<'a> Renderer<'a> {
     pub fn begin_frame(&mut self, xr_context: &mut XrContext) -> Result<ActiveFrame, RenderingError> {
         if !xr_context.session.running {
             return Err(Sleeping);
@@ -105,6 +100,10 @@ impl Renderer {
             predicted_display_time: frame_state.predicted_display_time,
             swapchain_image_index,
         })
+    }
+
+    pub fn request_fixture(&mut self) {
+        self.capture_fixture = true;
     }
 
     pub fn draw<F>(&mut self, xr_context: &mut XrContext, active_frame: ActiveFrame, payload: FramePayload, record_commands: F) -> Result<(), RenderingError> where
@@ -147,6 +146,15 @@ impl Renderer {
 
         record_commands(&mut graph, &draw_payload);
 
+        if self.capture_fixture {
+            self.capture_fixture = false;
+            graph.export_fixture(
+                self.fixture_path.join("fixture_binary"),
+                self.fixture_path.join("fixture.md")
+            ).expect("Failed to capture fixture.");
+            log::info!("Wrote fixture to {:?}", self.fixture_path);
+        }
+
         let swapchain = &mut xr_context.swapchain;
         swapchain.wait_image(xr::Duration::INFINITE).unwrap();
         let swapchain_queue = graph.finalize().queue_submit(&mut self.pool, xr_context.queue_family_index, 0).expect("Failure during render graph finalization");
@@ -170,7 +178,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn new(xr_context: &XrContext) -> Self {
+    pub fn new(xr_context: &XrContext, fixture_path: &'a Path) -> Self {
         let resolution = xr_context.swapchain.resolution();
         let swapchain_rect = xr::Rect2Di {
             offset: xr::Offset2Di { x: 0, y: 0 },
@@ -190,7 +198,9 @@ impl Renderer {
             resolution,
             pool,
             swapchain_queues,
-            swapchain_rect
+            swapchain_rect,
+            fixture_path,
+            capture_fixture: false
         }
     }
 }

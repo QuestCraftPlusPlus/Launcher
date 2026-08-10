@@ -1,3 +1,4 @@
+use std::ffi::CStr;
 use {
     log::{info, debug, error},
     openxr as xr,
@@ -227,17 +228,36 @@ impl XrInstance {
                     { // this looks silly but is like my only actual way to modify the features 1.2 struct
                         let mut curr = create_info.p_next as *mut vk::BaseInStructure;
                         while !curr.is_null() {
-                            if (*curr).s_type == vk::StructureType::PHYSICAL_DEVICE_VULKAN_1_2_FEATURES {
-                                let v12_features = curr as *mut vk::PhysicalDeviceVulkan12Features;
-
-                                (*v12_features).descriptor_indexing = vk::TRUE;
-                                (*v12_features).shader_sampled_image_array_non_uniform_indexing = vk::TRUE;
-                                (*v12_features).descriptor_binding_sampled_image_update_after_bind = vk::TRUE;
-                                (*v12_features).descriptor_binding_partially_bound = vk::TRUE;
-                                (*v12_features).runtime_descriptor_array = vk::TRUE;
-                            } else if (*curr).s_type == vk::StructureType::PHYSICAL_DEVICE_FEATURES_2 {
-                                let features = curr as *mut vk::PhysicalDeviceFeatures2;
-                                (*features).features.draw_indirect_first_instance = vk::TRUE;
+                            match (*curr).s_type {
+                                vk::StructureType::PHYSICAL_DEVICE_VULKAN_1_2_FEATURES => {
+                                    let v12_features = curr as *mut vk::PhysicalDeviceVulkan12Features;
+                                    (*v12_features).descriptor_indexing = vk::TRUE;
+                                    (*v12_features).shader_sampled_image_array_non_uniform_indexing = vk::TRUE;
+                                    (*v12_features).descriptor_binding_sampled_image_update_after_bind = vk::TRUE;
+                                    (*v12_features).descriptor_binding_partially_bound = vk::TRUE;
+                                    (*v12_features).runtime_descriptor_array = vk::TRUE;
+                                }
+                                vk::StructureType::PHYSICAL_DEVICE_FEATURES_2 => {
+                                    let features = curr as *mut vk::PhysicalDeviceFeatures2;
+                                    (*features).features.draw_indirect_first_instance = vk::TRUE;
+                                }
+                                vk::StructureType::PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR => {
+                                    let accel_features = curr as *mut vk::PhysicalDeviceAccelerationStructureFeaturesKHR;
+                                    (*accel_features).acceleration_structure = vk::FALSE;
+                                    (*accel_features).acceleration_structure_capture_replay = vk::FALSE;
+                                    (*accel_features).acceleration_structure_indirect_build = vk::FALSE;
+                                    (*accel_features).acceleration_structure_host_commands = vk::FALSE;
+                                }
+                                vk::StructureType::PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR => {
+                                    let rt_features = curr as *mut vk::PhysicalDeviceRayTracingPipelineFeaturesKHR;
+                                    (*rt_features).ray_tracing_pipeline = vk::FALSE;
+                                    (*rt_features).ray_tracing_pipeline_trace_rays_indirect = vk::FALSE;
+                                }
+                                vk::StructureType::PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR => {
+                                    let rq_features = curr as *mut vk::PhysicalDeviceRayQueryFeaturesKHR;
+                                    (*rq_features).ray_query = vk::FALSE;
+                                }
+                                _ => {}
                             }
                             curr = (*curr).p_next as *mut vk::BaseInStructure;
                         }
@@ -251,18 +271,36 @@ impl XrInstance {
                             &[]
                         }
                     };
+
+                    let blacklisted_exts = [
+                        vk::KHR_ACCELERATION_STRUCTURE_NAME,
+                        vk::KHR_RAY_TRACING_PIPELINE_NAME,
+                        vk::KHR_RAY_QUERY_NAME,
+                        vk::KHR_DEFERRED_HOST_OPERATIONS_NAME,
+                    ];
+
+                    let filtered_existing: Vec<*const c_char> = existing_extensions
+                        .iter()
+                        .copied()
+                        .filter(|&ext_ptr| {
+                            if ext_ptr.is_null() {
+                                return false;
+                            }
+                            let ext_cstr = CStr::from_ptr(ext_ptr);
+                            !blacklisted_exts.iter().any(|&b_name| ext_cstr == b_name)
+                        })
+                        .collect();
+
                     let extensions = [
                         KHR_EXTERNAL_MEMORY_NAME.as_ptr() as *const c_char,
                         ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_NAME.as_ptr() as *const c_char,
                     ];
 
-                    let combined: Vec<*const c_char> = existing_extensions
-                        .iter()
-                        .copied()
+                    let combined: Vec<*const c_char> = filtered_existing
+                        .into_iter()
                         .chain(extensions.iter().copied())
                         .collect();
 
-                    // combine them somehow?
                     let create_info = create_info.enabled_extension_names(&*combined);
 
                     let device = xr_instance

@@ -12,7 +12,7 @@ use {
             Swapchain
         },
         stage::Stage,
-        scene::scene::Scene,
+        scene::scene::{Scene, Skin, SkinType},
         input::{InputState, ExtractedInputs, Hand},
         instance::XrInstance,
         surface::{Surface, SurfaceManager, SurfaceTexture}
@@ -24,7 +24,15 @@ use {
     ndk::asset::AssetManager,
     ndk_sys::{AAssetManager, AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP},
     openxr::{self as xr, EnvironmentBlendMode, FrameState, ViewConfigurationType},
-    vk_graph::driver::ash::vk,
+    vk_graph::{
+        driver::{
+            ash::vk::{self, BufferUsageFlags},
+            buffer::Buffer,
+            image::{Image, ImageInfoBuilder},
+        },
+        pool::hash::HashPool,
+        Graph,
+    },
     log::info,
 };
 
@@ -150,23 +158,27 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     }
 
     let asset_manager = unsafe { AssetManager::from_ptr(NonNull::new(raw_asset_manager).expect("Null asset manager")) };
+    let internal_files_directory = ctx.get_internal_files_dir(env).expect("Failed to get a good internal files directory");
 
     let mut context = XrContext::new(Arc::clone(&ctx));
-    let mut renderer = Renderer::new(&context);
+    let mut renderer = Renderer::new(&context, internal_files_directory.as_path());
     let input = InputState::new(&context.instance, &context.session.session);
-    let scene = Scene::load(&context.instance.device, &asset_manager);
+    let mut scene = Scene::load(&context.instance.device, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
+
+    let names: Vec<&str> = scene.assets.animated_asset.animation_names().collect();
+    info!("Animations: {:?}", names);
+    let mut animator = scene.assets.animated_instance.create_animation_player("Idle", true).expect("Failed to get Idle animator");
 
     let mut surface = Surface::new(env, 1920, 1080);
     ctx.set_surface(env, &surface);
 
     let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
-    let surface_node = &scene.assets.gltf_scene.nodes[surface_index];
-    let surface_mesh =
-        &scene.assets.gltf_scene.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
+    let surface_node = &scene.assets.scene_instance.nodes[surface_index];
+    let surface_mesh = &scene.assets.scene_asset.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
-    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.gltf_scene, surface_mesh);
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.scene_asset, surface_mesh);
 
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();
@@ -229,6 +241,45 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             last_surface_texture = Some(Arc::new(surface_texture));
         }
 
+        if let Some(data) = jni_state::PENDING_SKIN_IMAGE.lock().unwrap().take() {
+            match image::load_from_memory(&data.png_bytes) {
+                Ok(img) => {
+                    let gpu_image_info = ImageInfoBuilder::default()
+                        .width(img.width())
+                        .height(img.height())
+                        .depth(1)
+                        .format(vk::Format::R8G8B8A8_SRGB)
+                        .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST);
+
+                    let image = Arc::new(Image::create(&context.instance.device, gpu_image_info).unwrap());
+                    let mut graph = Graph::default();
+                    let image_node = graph.bind_resource(&image);
+                    let image_buf = graph.bind_resource(Buffer::create_from_slice(
+                        &context.instance.device,
+                        BufferUsageFlags::TRANSFER_SRC,
+                        img.as_bytes()
+                    ).unwrap());
+                    graph.copy_buffer_to_image(image_buf, image_node);
+                    graph.finalize().queue_submit(&mut HashPool::new(&context.instance.device), 0, 0).expect("Failed to upload images to GPU");
+
+                    *scene.assets.skin.write().unwrap() = Some(Skin {
+                        texture: image.clone(),
+                        skin_type: {
+                            if data.slim {
+                                SkinType::Slim
+                            } else {
+                                SkinType::Wide
+                            }
+                        }
+                    });
+                }
+                Err(err) => log::error!("Bad skin supplied from java-side: {:?}", err)
+            }
+        }
+
+        animator.advance(delta_time, &scene.assets.animated_asset.animations[animator.clip_index]);
+        scene.assets.animated_instance.animate(&context.instance.device, &animator);
+
         let world_to_stage = stage.world_to_stage_matrix();
         let stage_to_world = world_to_stage.inverse();
         let eye_pos = stage_to_world.transform_point3(eye_pos);
@@ -240,6 +291,14 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         if inputs.left.click && primary_hand != Hand::Left {
             primary_hand = Hand::Left;
             previous_inputs = None;
+        }
+
+        #[cfg(feature = "profiled")]
+        if let Some(previous_inputs) = previous_inputs {
+            if inputs.menu && !previous_inputs.menu {
+                info!("Asking renderer to capture next frame...");
+                renderer.request_fixture();
+            }
         }
 
         let hand_inputs = if primary_hand == Hand::Right {
@@ -283,12 +342,14 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 renderer::projection_transform(views[0]),
                 renderer::projection_transform(views[1]),
             ],
-            predicted_display_time: active_frame.predicted_display_time,
             xr_views: &views,
         };
 
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
+            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
+                scene.assets.animated_instance.record_with_transform_override_texture(graph, draw_payload, &Mat4::IDENTITY, skin.texture.clone());
+            }
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, surface_transform);
             }
@@ -303,7 +364,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                         ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
                     }
                 }
-                scene.record_controller(graph, draw_payload, &transform, ray_transform);
+                scene.record_controller(graph, draw_payload, Hand::Left, &transform, ray_transform);
             }
             if let Some(ref transform) = inputs.right.matrix {
                 let transform = stage_to_world * transform;
@@ -313,7 +374,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                         ray_transform = Some(billboard_ray_transform(&transform, &eye_pos));
                     }
                 }
-                scene.record_controller(graph, draw_payload, &transform, ray_transform);
+                scene.record_controller(graph, draw_payload, Hand::Right, &transform, ray_transform);
             }
         });
         if result.is_err() {
