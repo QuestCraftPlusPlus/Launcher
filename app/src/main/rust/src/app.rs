@@ -1,3 +1,7 @@
+use log::warn;
+use vk_graph::driver::ash::vk::DeviceSize;
+use vk_graph::driver::buffer::BufferInfo;
+use vk_graph::pool::Pool;
 use {
     std::{
         time::{Instant, Duration},
@@ -35,6 +39,7 @@ use {
     },
     log::info,
 };
+use crate::render::renderer::{RenderingError, XrCameraUBO};
 
 pub struct XrSession {
     pub(crate) running: bool,
@@ -163,7 +168,20 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let mut context = XrContext::new(Arc::clone(&ctx));
     let mut renderer = Renderer::new(&context, internal_files_directory.as_path());
     let input = InputState::new(&context.instance, &context.session.session);
-    let mut scene = Scene::load(&context.instance.device, &asset_manager);
+
+    let mut mapped_camera_buffers = Vec::new();
+    let mut camera_buffers = Vec::new();
+    (0..context.swapchain.enumerate_images().unwrap().len()).for_each(|_| {
+        let mut buffer = Buffer::create(&context.instance.device, BufferInfo::builder()
+            .host_writable(true)
+            .size(size_of::<XrCameraUBO>() as DeviceSize)
+            .usage(BufferUsageFlags::UNIFORM_BUFFER))
+            .expect("Failed to allocate camera buffer");
+        mapped_camera_buffers.push(buffer.mapped_slice_mut().as_mut_ptr() as *mut XrCameraUBO);
+        camera_buffers.push(Arc::new(buffer));
+    });
+
+    let mut scene = Scene::load(&context.instance.device, &camera_buffers, &asset_manager);
     // if you're looking how to load assets n shit, it's in the scene ^^
 
     let names: Vec<&str> = scene.assets.animated_asset.animation_names().collect();
@@ -202,7 +220,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             Ok(frame) => frame,
             Err(err) => {
                 match err {
-                    renderer::RenderingError::Sleeping => {
+                    RenderingError::Sleeping => {
                         sleep(Duration::from_millis(100));
                         log::trace!("sleeping...")
                     },
@@ -275,6 +293,15 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 }
                 Err(err) => log::error!("Bad skin supplied from java-side: {:?}", err)
             }
+
+            
+            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
+                scene.assets.animated_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.left_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.slim_left_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.right_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.slim_right_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+            }
         }
 
         animator.advance(delta_time, &scene.assets.animated_asset.animations[animator.clip_index]);
@@ -333,23 +360,26 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             }
         }
 
-        let payload = renderer::FramePayload {
-            view_matrices: [
+        unsafe {
+            let mapped_camera_buffer = mapped_camera_buffers[renderer.frame_in_flight];
+            (*mapped_camera_buffer).view_matrices = [
                 renderer::view_transform(views[0]) * world_to_stage,
                 renderer::view_transform(views[1]) * world_to_stage,
-            ],
-            projection_matrices: [
+            ];
+            (*mapped_camera_buffer).projection_matrices = [
                 renderer::projection_transform(views[0]),
                 renderer::projection_transform(views[1]),
-            ],
+            ];
+        }
+
+        let payload = renderer::FramePayload {
+            camera_buffer: &camera_buffers[renderer.frame_in_flight],
             xr_views: &views,
         };
 
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
-            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
-                scene.assets.animated_instance.record_with_transform_override_texture(graph, draw_payload, &Mat4::IDENTITY, skin.texture.clone());
-            }
+            scene.assets.animated_instance.record_with_transform(graph, draw_payload, &Mat4::IDENTITY);
             if let Some(ref last_surface_texture) = last_surface_texture {
                 surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, surface_transform);
             }

@@ -13,9 +13,9 @@ cargo {
     module = "./src/main/rust"
     libname = "qcxr"
     targets = listOf("arm64")
-//    features {
-//        defaultAnd("profiled")
-//    }
+    features {
+        defaultAnd("profiled")
+    }
     profile = "release"
 }
 

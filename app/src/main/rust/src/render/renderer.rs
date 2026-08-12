@@ -1,4 +1,7 @@
 use std::path::Path;
+use std::sync::Arc;
+use vk_graph::driver::buffer::Buffer;
+use vk_graph::node::{AnyBufferNode, AnyImageNode};
 use {
     crate::{
         app::XrContext,
@@ -16,8 +19,7 @@ use {
     vk_graph::{
         cmd::ClearColorValue,
         driver::{
-            ash::vk::{self, BufferUsageFlags, DeviceSize},
-            buffer::BufferInfo,
+            ash::vk::{self},
             device::Device,
             fence::Fence,
             image::{ImageInfo, SampleCount},
@@ -38,9 +40,11 @@ pub enum RenderingError {
 }
 
 pub struct Renderer<'a> {
-    resolution: vk::Extent2D,
+    pub resolution: vk::Extent2D,
 
-    pool: LazyPool,
+    pub pool: LazyPool,
+    pub frame_in_flight: usize,
+    max_frames_in_flight: usize,
     swapchain_queues: Box<[Option<Fence>]>,
     swapchain_rect: xr::Rect2Di,
     fixture_path: &'a Path,
@@ -73,15 +77,15 @@ pub struct ActiveFrame {
 }
 
 pub struct FramePayload<'a> {
-    pub view_matrices: [Mat4; 2],
-    pub projection_matrices: [Mat4; 2],
+    pub camera_buffer: &'a Arc<Buffer>,
     pub xr_views: &'a [openxr::View],
 }
 
 pub struct DrawPayload<'a> {
-    pub camera_ubo: &'a vk_graph::node::AnyBufferNode,
-    pub color_target: &'a vk_graph::node::AnyImageNode,
-    pub depth_target: &'a vk_graph::node::AnyImageNode,
+    pub frame_in_flight: usize,
+    pub camera_ubo: &'a AnyBufferNode,
+    pub color_target: &'a AnyImageNode,
+    pub depth_target: &'a AnyImageNode,
 }
 
 pub const VIEW_MASK: u32 = !(!0 << 2);
@@ -123,22 +127,13 @@ impl<'a> Renderer<'a> {
             ).into_builder().sample_count(MSAA_COUNT)).unwrap().with_debug_name("main depth image")
         );
 
-        let camera_data = XrCameraUBO {
-            view_matrices: payload.view_matrices,
-            projection_matrices: payload.projection_matrices,
-        };
-        let mut ubo_buffer = self.pool.resource(BufferInfo::builder()
-            .host_writable(true)
-            .size(size_of::<XrCameraUBO>() as DeviceSize)
-            .usage(BufferUsageFlags::UNIFORM_BUFFER)
-        ).map_err(|_| RenderingError::DriverError)?;
-        ubo_buffer.copy_from_slice(0, bytemuck::bytes_of(&camera_data));
-        let camera_ubo_node = graph.bind_resource(ubo_buffer);
+        let camera_ubo_node = graph.bind_resource(payload.camera_buffer);
 
         graph.clear_color_image(swapchain_image, ClearColorValue::WHITE_ALPHA_ONE);
         graph.clear_depth_stencil_image(depth_target, 1.0, 0);
 
         let draw_payload = DrawPayload {
+            frame_in_flight: self.frame_in_flight,
             camera_ubo: &camera_ubo_node.into(),
             color_target: &swapchain_image.into(),
             depth_target: &depth_target.into(),
@@ -172,6 +167,7 @@ impl<'a> Renderer<'a> {
                 ])
             ]
         ).map_err(|_| FailedToEndStream)?;
+        self.frame_in_flight = (self.frame_in_flight + 1) % self.max_frames_in_flight;
         #[cfg(feature = "profiled")]
         profiling::finish_frame!();
 
@@ -197,6 +193,8 @@ impl<'a> Renderer<'a> {
         Renderer {
             resolution,
             pool,
+            frame_in_flight: 0,
+            max_frames_in_flight: swapchain_image_count,
             swapchain_queues,
             swapchain_rect,
             fixture_path,
