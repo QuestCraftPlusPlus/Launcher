@@ -15,6 +15,8 @@ composeBom = "2026.06.01"
 coreKtx = "1.18.0"
 msal4j = "1.25.0"
 gson = "2.14.0"
+slf4j-api = "2.0.17"
+okhttp3 = "5.4.0"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -37,6 +39,8 @@ compose-icons-extended = { group = "androidx.compose.material", name = "material
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 msal4j = { group = "com.microsoft.azure", name = "msal4j", version.ref = "msal4j" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j-api" }
+okhttp3 = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp3" }
 
 openxr-loader = { group = "org.khronos.openxr", name = "openxr_loader_for_android", version.ref = "openxr-loader" }
 

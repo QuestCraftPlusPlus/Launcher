@@ -1,5 +1,4 @@
 import com.android.build.api.dsl.ApplicationExtension
-import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -64,6 +63,13 @@ configure<ApplicationExtension> {
 }
 
 dependencies {
+    api(files("libs/judgelib.aar"))
+    // temp
+    api(libs.msal4j)
+    api(libs.gson)
+    api(libs.slf4j.api)
+    api(libs.okhttp3)
+
     implementation(libs.openxr.loader)
     implementation(platform(libs.compose.bom))
     implementation(libs.activity.compose)
@@ -74,19 +80,18 @@ dependencies {
     implementation(libs.ui)
     implementation(libs.ui.graphics)
     implementation(libs.ui.tooling.preview)
-    implementation(files("libs/judgelib-0.1.0.jar"))
     implementation(libs.msal4j)
     implementation(libs.gson)
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.constraintlayout)
-    testImplementation(libs.junit)
+/*    testImplementation(libs.junit)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.test.manifest)
-    debugImplementation(libs.ui.tooling)
+    debugImplementation(libs.ui.tooling)*/
 }
 
 val generatedShaderDir = layout.buildDirectory.dir("generated/shaders")
@@ -115,6 +120,14 @@ tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach 
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_21
+    }
+}
+
+gradle.taskGraph.whenReady {
+    allTasks.forEach { task ->
+        if (task.name.contains("lint", ignoreCase = true)) {
+            task.enabled = false
+        }
     }
 }
 

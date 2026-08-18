@@ -32,6 +32,16 @@ public final class Constants {
         return me.getExternalFilesDir(null).toPath();
     }
 
+    @SuppressLint("SdCardPath")
+    public static Path CODE_CACHE_PATH() {
+        MainActivity me = MainActivity.weakMe.get();
+        if (me == null) {
+            return new File("/data/data/com.qcxr.questcraft/code_cache").toPath();
+        }
+
+        return me.getCodeCacheDir().toPath();
+    }
+
     public static Path INSTANCE_ROOT_PATH() {
         return USER_DATA_PATH().resolve("instances");
     }

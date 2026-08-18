@@ -20,6 +20,7 @@ import androidx.activity.ComponentActivity;
 
 import org.angelauramc.judgelib.JudgeLibAPI;
 import org.angelauramc.judgelib.impl.InitInfo;
+import org.angelauramc.judgelib.launcher.AndroidJavaLauncher;
 
 public class MainActivity extends ComponentActivity {
     public static WeakReference<MainActivity> weakMe = new WeakReference<>(null);
@@ -41,7 +42,7 @@ public class MainActivity extends ComponentActivity {
         //setDensity();
         weakMe = new WeakReference<>(this);
         uiThreadHandler = new Handler(Looper.getMainLooper());
-        xrActivityInput = new XRActivityInput(uiThreadHandler);
+        //xrActivityInput = new XRActivityInput(uiThreadHandler);
 
         // JudgeLib Init
         initJudgeLib();
@@ -50,7 +51,7 @@ public class MainActivity extends ComponentActivity {
             JniBridge.setSkinImage(result.skinPngBytes(), result.slim());
         });
 
-        JniBridge.start(this, getAssets());
+        //JniBridge.start(this, getAssets());
         setContentView(UIActivity.createView(this));
     }
 

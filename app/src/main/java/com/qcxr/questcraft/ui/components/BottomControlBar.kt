@@ -81,7 +81,7 @@ fun BottomControlBar(
                     Platform.ANDROID,
                     null,
                     null,
-                    Constants.JAVA_RUNTIMES_PATH().resolve("jdk25-amethyst").toString(),
+                    Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25/lib/libjvm.so").toString(),
                     Constants.MINECRAFT_LIBRARIES_PATH().toString(),
                     "libmobileglues.so"
                 )
