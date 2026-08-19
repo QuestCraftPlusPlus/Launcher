@@ -75,16 +75,17 @@ fun BottomControlBar(
         Button(
             onClick = {
                 // TODO: Pass in proper values
-                MainActivity.judgeLibAPI.launchInstance(
+                val exitCode = MainActivity.judgeLibAPI.launchInstance(
                     selectedInstance?.jLibInstance,
                     selectedAccount,
                     Platform.ANDROID,
                     null,
                     null,
-                    Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25/lib/libjvm.so").toString(),
+                    //Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25/lib/libjvm.so").toString(),
                     Constants.MINECRAFT_LIBRARIES_PATH().toString(),
                     "libmobileglues.so"
                 )
+                println("Native image exit code $exitCode")
             },
             modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),

@@ -183,10 +183,12 @@ fun QuestLauncherScreen() {
                         withContext(Dispatchers.IO) {
                             MainActivity.judgeLibAPI.createInstance(
                                 name,
-                                InstanceFormat.HOTSPOT_JVM, //TODO: Make a real option
+                                InstanceFormat.GRAAL_NATIVE, //TODO: Make a real option
                                 versionObj,
                                 Constants.INSTANCE_ROOT_PATH(),
-                                Constants.MINECRAFT_ASSETS_PATH()
+                                Constants.MINECRAFT_ASSETS_PATH(),
+                                Constants.INTERNAL_DATA_PATH().resolve("graal/12111/libmcnative.so"),
+                                "run_main"
                             )
                         }
 
