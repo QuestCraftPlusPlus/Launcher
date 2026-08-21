@@ -186,8 +186,10 @@ fun QuestLauncherScreen() {
                                 InstanceFormat.HOTSPOT_JVM, //TODO: Make a real option
                                 versionObj,
                                 Constants.INSTANCE_ROOT_PATH(),
-                                Constants.MINECRAFT_ASSETS_PATH()
-                            )
+                                Constants.MINECRAFT_ASSETS_PATH(),
+                                Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25/lib/server/libjvm.so"),
+                                ""
+                                )
                         }
 
                         installProgress = 1f

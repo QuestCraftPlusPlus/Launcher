@@ -8,6 +8,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,10 +21,11 @@ import com.qcxr.questcraft.MainActivity
 import com.qcxr.questcraft.R
 import com.qcxr.questcraft.ui.theme.*
 import com.qcxr.questcraft.utils.Constants
-import org.angelauramc.judgelib.JudgeLibAPI
-import org.angelauramc.judgelib.instance.InstanceFormat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.angelauramc.judgelib.launcher.Platform
 import org.angelauramc.judgelib.util.json.auth.JudgeLibAccount
+
 
 @Composable
 fun BottomControlBar(
@@ -31,6 +33,8 @@ fun BottomControlBar(
     selectedAccount: JudgeLibAccount?,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -75,16 +79,17 @@ fun BottomControlBar(
         Button(
             onClick = {
                 // TODO: Pass in proper values
-                MainActivity.judgeLibAPI.launchInstance(
-                    selectedInstance?.jLibInstance,
-                    selectedAccount,
-                    Platform.ANDROID,
-                    null,
-                    null,
-                    Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25/lib/libjvm.so").toString(),
-                    Constants.MINECRAFT_LIBRARIES_PATH().toString(),
-                    "libmobileglues.so"
-                )
+                scope.launch(Dispatchers.IO) {
+                    MainActivity.judgeLibAPI.launchInstance(
+                        selectedInstance?.jLibInstance,
+                        selectedAccount,
+                        Platform.ANDROID,
+                        null,
+                        arrayOf("-Xrs", "-Djava.home=" + Constants.JAVA_RUNTIMES_PATH().resolve("fcl-jre25")),
+                        Constants.MINECRAFT_LIBRARIES_PATH().toString(),
+                        "libmobileglues.so"
+                    )
+                }
             },
             modifier = Modifier.height(48.dp).width(160.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
