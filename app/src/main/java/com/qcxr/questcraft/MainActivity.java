@@ -1,10 +1,8 @@
 package com.qcxr.questcraft;
 
-import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.DisplayMetrics;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
@@ -39,7 +37,6 @@ public class MainActivity extends ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        //setDensity();
         weakMe = new WeakReference<>(this);
         uiThreadHandler = new Handler(Looper.getMainLooper());
         //xrActivityInput = new XRActivityInput(uiThreadHandler);
@@ -75,16 +72,6 @@ public class MainActivity extends ComponentActivity {
         if (res != null) {
             userLoginCode = res.userCode();
         }
-    }
-
-    private void setDensity() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float density = 0.75f;
-        float densityMultiplier = 160;
-        metrics.density = density;
-        metrics.ydpi = metrics.xdpi = densityMultiplier * density;
-        metrics.densityDpi = (int)metrics.xdpi;
-        getResources().updateConfiguration(null, null);
     }
 
     public void setVulkanSurface(Surface surface, int width, int height) {

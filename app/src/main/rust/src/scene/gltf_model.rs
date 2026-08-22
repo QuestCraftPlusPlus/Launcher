@@ -1,3 +1,4 @@
+use vk_graph::driver::descriptor_set::{DescriptorSet, DescriptorSetBinding, DescriptorSetInfo, DescriptorSetUpdateInfo};
 use {
     std::{collections::HashMap, sync::Arc},
     bytemuck::{bytes_of, Pod, Zeroable},
@@ -725,8 +726,8 @@ impl GltfAsset {
             if let Some(extras) = mesh.extras() {
                 let json_str = extras.get();
                 if let Ok(ui_props) = serde_json::from_str::<Extras>(json_str) {
-                    if ui_props.is_ui_surface.is_some() {
-                        info!("Found UI surface mesh: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
+                    if ui_props.is_ui_surface.is_some() || ui_props.is_grab_bar.is_some() {
+                        info!("Found special mesh: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
                         specials.push(nodes.len());
                         node_extras.insert(nodes.len(), ui_props);
                     }
@@ -815,13 +816,15 @@ pub struct GltfInstance {
     pub asset: Arc<GltfAsset>,
     pub nodes: Vec<GltfNode>,
 
+    descriptor_sets: Vec<DescriptorSet>,
+
     instance_data: Vec<PushConstants>,
     instance_buffer: Arc<Buffer>,
     joint_matrix_buffer: Arc<Buffer>,
 }
 
 impl GltfInstance {
-    pub fn new(asset: Arc<GltfAsset>, device: &Device) -> Self {
+    pub fn new(asset: Arc<GltfAsset>, device: &Device, camera_buffers: &Vec<Arc<Buffer>>) -> Self {
         let nodes = asset.bind_pose_nodes.clone();
         let instance_data = asset.base_instance_data.clone();
 
@@ -838,13 +841,80 @@ impl GltfInstance {
             bytemuck::cast_slice(&joint_matrix_seed),
         ).expect("Failed to create joint matrix buffer"));
 
+        let mut descriptor_sets = Vec::new();
+
+        for camera_buffer in camera_buffers {
+            let mut descriptors = Vec::new();
+            descriptors.push(DescriptorSetUpdateInfo::buffer(0, camera_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(1, &instance_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(2, &joint_matrix_buffer));
+
+            for (idx, texture) in asset.textures.iter().enumerate() {
+                descriptors.push(DescriptorSetUpdateInfo::image(DescriptorSetBinding { binding: 3, array_element: idx as u32 }, texture));
+            }
+
+            descriptor_sets.push(DescriptorSet::alloc_and_update(
+                &*asset.culled_pipeline,
+                DescriptorSetInfo::builder().set(0).build(),
+                descriptors
+            ).expect("Failed to allocate and update descriptor set 0"));
+        }
+
         GltfInstance {
             asset,
             nodes,
+            descriptor_sets,
             instance_data,
             instance_buffer,
             joint_matrix_buffer,
         }
+    }
+    
+    pub fn override_textures(&mut self, texture: &Arc<Image>, camera_buffers: &Vec<Arc<Buffer>>) {
+        let mut descriptor_sets = Vec::new();
+
+        for camera_buffer in camera_buffers {
+            let mut descriptors = Vec::new();
+            descriptors.push(DescriptorSetUpdateInfo::buffer(0, camera_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(1, &self.instance_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(2, &self.joint_matrix_buffer));
+
+            for (idx, _) in self.asset.textures.iter().enumerate() {
+                descriptors.push(DescriptorSetUpdateInfo::image(DescriptorSetBinding { binding: 3, array_element: idx as u32 }, texture));
+            }
+
+            descriptor_sets.push(DescriptorSet::alloc_and_update(
+                &*self.asset.culled_pipeline,
+                DescriptorSetInfo::builder().set(0).build(),
+                descriptors
+            ).expect("Failed to allocate and update descriptor set 0"));
+        }
+        
+        self.descriptor_sets = descriptor_sets;
+    }
+    
+    // note: this isn't really normally necessary to use, but it's here in case we'd ever want to reset the textures for whatever reason.
+    pub fn recreate_descriptor_sets(&mut self, camera_buffers: &Vec<Arc<Buffer>>) {
+        let mut descriptor_sets = Vec::new();
+
+        for camera_buffer in camera_buffers {
+            let mut descriptors = Vec::new();
+            descriptors.push(DescriptorSetUpdateInfo::buffer(0, camera_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(1, &self.instance_buffer));
+            descriptors.push(DescriptorSetUpdateInfo::buffer(2, &self.joint_matrix_buffer));
+
+            for (idx, texture) in self.asset.textures.iter().enumerate() {
+                descriptors.push(DescriptorSetUpdateInfo::image(DescriptorSetBinding { binding: 3, array_element: idx as u32 }, texture));
+            }
+
+            descriptor_sets.push(DescriptorSet::alloc_and_update(
+                &*self.asset.culled_pipeline,
+                DescriptorSetInfo::builder().set(0).build(),
+                descriptors
+            ).expect("Failed to allocate and update descriptor set 0"));
+        }
+
+        self.descriptor_sets = descriptor_sets;
     }
 
     pub fn create_animation_player(&self, clip_name: &str, looping: bool) -> Option<AnimationPlayer> {
@@ -918,10 +988,11 @@ impl GltfInstance {
                 .begin_cmd()
                 .debug_name(format!("Scene {} (culled)", asset.identifier))
                 .bind_pipeline(&*asset.culled_pipeline)
+                .bind_descriptor_set(&self.descriptor_sets[draw_payload.frame_in_flight])
                 .multiview(crate::render::renderer::VIEW_MASK, 0)
-                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
-                .shader_resource_access(2, joint_node, AccessType::VertexShaderReadOther)
+                .resource_access(*draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .resource_access(instance_node, AccessType::VertexShaderReadOther)
+                .resource_access(joint_node, AccessType::VertexShaderReadOther)
                 .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
                 .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
                 .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
@@ -929,10 +1000,9 @@ impl GltfInstance {
                 .resource_access(v_node, AccessType::VertexBuffer)
                 .resource_access(indirect_node, AccessType::IndirectBuffer);
 
-            for (idx, texture) in asset.textures.iter().enumerate() {
+            for texture in &asset.textures {
                 let image_node = cmd_builder.bind_resource(texture);
-                cmd_builder.set_shader_resource_access(
-                    (3, [idx as u32]),
+                cmd_builder.set_resource_access(
                     image_node,
                     AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
                 );
@@ -952,10 +1022,11 @@ impl GltfInstance {
                 .begin_cmd()
                 .debug_name(format!("Scene {} (no-cull)", asset.identifier))
                 .bind_pipeline(&*asset.no_cull_pipeline)
+                .bind_descriptor_set(&self.descriptor_sets[draw_payload.frame_in_flight])
                 .multiview(crate::render::renderer::VIEW_MASK, 0)
-                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
-                .shader_resource_access(2, joint_node, AccessType::VertexShaderReadOther)
+                .resource_access(*draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
+                .resource_access(instance_node, AccessType::VertexShaderReadOther)
+                .resource_access(joint_node, AccessType::VertexShaderReadOther)
                 .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
                 .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
                 .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
@@ -963,94 +1034,9 @@ impl GltfInstance {
                 .resource_access(v_node, AccessType::VertexBuffer)
                 .resource_access(indirect_node, AccessType::IndirectBuffer);
 
-            for (idx, texture) in asset.textures.iter().enumerate() {
+            for texture in &asset.textures {
                 let image_node = cmd_builder.bind_resource(texture);
-                cmd_builder.set_shader_resource_access(
-                    (3, [idx as u32]),
-                    image_node,
-                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
-                );
-            }
-
-            let draw_count = asset.no_cull_draw_count;
-            cmd_builder.record_cmd(move |cmd| {
-                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
-                    .bind_vertex_buffer(0, v_node, 0)
-                    .push_constants(0, bytes_of(&scene_transform))
-                    .draw_indexed_indirect(indirect_node, no_cull_offset, draw_count, stride as u32);
-            }).end_cmd();
-        }
-    }
-
-    pub fn record_with_transform_override_texture(&self, graph: &mut Graph, draw_payload: &DrawPayload, transform: &Mat4, texture: Arc<Image>) {
-        #[cfg(feature = "profiled")]
-        profiling::function_scope!();
-
-        let asset = &self.asset;
-        let v_node = graph.bind_resource(asset.vertex_buffer.clone());
-        let i_node = graph.bind_resource(asset.index_buffer.clone());
-        let instance_node = graph.bind_resource(self.instance_buffer.clone());
-        let indirect_node = graph.bind_resource(asset.indirect_buffer.clone());
-        let joint_node = graph.bind_resource(self.joint_matrix_buffer.clone());
-
-        let scene_transform = *transform;
-        let stride = size_of::<DrawIndexedIndirectCommand>() as vk::DeviceSize;
-        let no_cull_offset = stride * asset.culled_draw_count as vk::DeviceSize;
-
-        if asset.culled_draw_count > 0 {
-            let mut cmd_builder = graph
-                .begin_cmd()
-                .debug_name(format!("Scene {} (culled)", asset.identifier))
-                .bind_pipeline(&*asset.culled_pipeline)
-                .multiview(crate::render::renderer::VIEW_MASK, 0)
-                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
-                .shader_resource_access(2, joint_node, AccessType::VertexShaderReadOther)
-                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
-                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
-                .resource_access(i_node, AccessType::IndexBuffer)
-                .resource_access(v_node, AccessType::VertexBuffer)
-                .resource_access(indirect_node, AccessType::IndirectBuffer);
-
-            let image_node = cmd_builder.bind_resource(&texture);
-            for (idx, _) in asset.textures.iter().enumerate() {
-                cmd_builder.set_shader_resource_access(
-                    (3, [idx as u32]),
-                    image_node,
-                    AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
-                );
-            }
-
-            let draw_count = asset.culled_draw_count;
-            cmd_builder.record_cmd(move |cmd| {
-                cmd.bind_index_buffer(i_node, 0, IndexType::UINT32)
-                    .bind_vertex_buffer(0, v_node, 0)
-                    .push_constants(0, bytes_of(&scene_transform))
-                    .draw_indexed_indirect(indirect_node, 0, draw_count, stride as u32);
-            }).end_cmd();
-        }
-
-        if asset.no_cull_draw_count > 0 {
-            let mut cmd_builder = graph
-                .begin_cmd()
-                .debug_name(format!("Scene {} (no-cull)", asset.identifier))
-                .bind_pipeline(&*asset.no_cull_pipeline)
-                .multiview(crate::render::renderer::VIEW_MASK, 0)
-                .shader_resource_access(0, *draw_payload.camera_ubo, AccessType::VertexShaderReadUniformBuffer)
-                .shader_resource_access(1, instance_node, AccessType::VertexShaderReadOther)
-                .shader_resource_access(2, joint_node, AccessType::VertexShaderReadOther)
-                .color_attachment_image(0, *draw_payload.color_target, LoadOp::Load, StoreOp::Store)
-                .depth_stencil(DepthStencilInfo::DEPTH_WRITE_LESS)
-                .depth_stencil_attachment_image(*draw_payload.depth_target, LoadOp::Load, StoreOp::Store)
-                .resource_access(i_node, AccessType::IndexBuffer)
-                .resource_access(v_node, AccessType::VertexBuffer)
-                .resource_access(indirect_node, AccessType::IndirectBuffer);
-
-            let image_node = cmd_builder.bind_resource(&texture);
-            for (idx, _) in asset.textures.iter().enumerate() {
-                cmd_builder.set_shader_resource_access(
-                    (3, [idx as u32]),
+                cmd_builder.set_resource_access(
                     image_node,
                     AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer,
                 );
@@ -1082,6 +1068,17 @@ impl GltfInstance {
         self.asset.specials.iter().find_map(|&idx| {
             if let Some(extras) = self.asset.node_extras.get(&idx) {
                 if extras.is_ui_surface == Some(1) {
+                    return Some(idx)
+                }
+            }
+            None
+        })
+    }
+    
+    pub fn find_grab_bar_index(&self) -> Option<NodeIndex> {
+        self.asset.specials.iter().find_map(|&idx| {
+            if let Some(extras) = self.asset.node_extras.get(&idx) {
+                if extras.is_grab_bar == Some(1) {
                     return Some(idx)
                 }
             }
@@ -1176,4 +1173,6 @@ pub struct Extras {
     pub is_ui_surface: Option<i32>,
     #[serde(rename = "is_spawnpoint")]
     pub is_spawnpoint: Option<i32>,
+    #[serde(rename = "is_grab_bar")]
+    pub is_grab_bar: Option<i32>,
 }

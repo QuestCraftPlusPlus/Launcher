@@ -1,3 +1,4 @@
+use vk_graph::driver::buffer::Buffer;
 use {
     crate::{
         render::renderer::{self, DrawPayload},
@@ -44,15 +45,15 @@ pub struct Assets {
     pub animated_asset: Arc<GltfAsset>,
     pub animated_instance: GltfInstance,
 
-    // these _asset fields don't really need to be here because GltfInstance holds a reference, but I don't really want to delete them in case we want to add animations to them (which would require an accessible reference to the asset)
+    // these _asset fields don't really need to be here because GltfInstance holds a reference. However, I don't really want to delete them in case we want to add animations to them (which would require an accessible reference to the asset)
     left_controller_scene_asset: Arc<GltfAsset>,
-    left_controller_scene_instance: GltfInstance,
+    pub left_controller_scene_instance: GltfInstance,
     right_controller_scene_asset: Arc<GltfAsset>,
-    right_controller_scene_instance: GltfInstance,
+    pub right_controller_scene_instance: GltfInstance,
     slim_left_controller_scene_asset: Arc<GltfAsset>,
-    slim_left_controller_scene_instance: GltfInstance,
+    pub slim_left_controller_scene_instance: GltfInstance,
     slim_right_controller_scene_asset: Arc<GltfAsset>,
-    slim_right_controller_scene_instance: GltfInstance,
+    pub slim_right_controller_scene_instance: GltfInstance,
     
     ray_scene_asset: Arc<GltfAsset>,
     ray_scene_instance: GltfInstance,
@@ -68,7 +69,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn load(device: &Device, asset_manager: &AssetManager) -> Self {
+    pub fn load(device: &Device, camera_buffers: &Vec<Arc<Buffer>>, asset_manager: &AssetManager) -> Self {
         let gltf_unlit_shaders = {
             let mut asset = asset_manager.open(c"shaders/gltf_unlit.spv").expect("Failed to load 'gltf_unlit' shader");
             let spv_bytes = asset.buffer().unwrap();
@@ -244,47 +245,47 @@ impl Scene {
             let asset = asset_manager.open(c"meshes/scene.glb").expect("Failed to load 'scene.glb'");
             Arc::new(GltfAsset::new("Test".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let scene_instance = GltfInstance::new(scene_asset.clone(), device);
+        let scene_instance = GltfInstance::new(scene_asset.clone(), device, camera_buffers);
 
         let animated_asset = {
             let asset = asset_manager.open(c"meshes/animated.glb").expect("Failed to load 'animated.glb'");
             Arc::new(GltfAsset::new("Animated".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
-        let animated_instance = GltfInstance::new(animated_asset.clone(), device);
+        let animated_instance = GltfInstance::new(animated_asset.clone(), device, camera_buffers);
 
         let left_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/left_controller.glb").expect("Failed to load 'left_controller.glb'");
             Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let left_controller_scene_instance = GltfInstance::new(left_controller_scene_asset.clone(), device);
+        let left_controller_scene_instance = GltfInstance::new(left_controller_scene_asset.clone(), device, camera_buffers);
         let right_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/right_controller.glb").expect("Failed to load 'right_controller.glb'");
             Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let right_controller_scene_instance = GltfInstance::new(right_controller_scene_asset.clone(), device);
+        let right_controller_scene_instance = GltfInstance::new(right_controller_scene_asset.clone(), device, camera_buffers);
 
         let slim_left_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/slim_left_controller.glb").expect("Failed to load 'slim_left_controller.glb'");
             Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let slim_left_controller_scene_instance = GltfInstance::new(slim_left_controller_scene_asset.clone(), device);
+        let slim_left_controller_scene_instance = GltfInstance::new(slim_left_controller_scene_asset.clone(), device, camera_buffers);
         let slim_right_controller_scene_asset = {
             let asset = asset_manager.open(c"meshes/slim_right_controller.glb").expect("Failed to load 'slim_right_controller.glb'");
             Arc::new(GltfAsset::new("Controller".to_string(), asset, device, gltf_unlit_pipeline.clone(), gltf_unlit_no_cull_pipeline.clone()))
         };
-        let slim_right_controller_scene_instance = GltfInstance::new(slim_right_controller_scene_asset.clone(), device);
+        let slim_right_controller_scene_instance = GltfInstance::new(slim_right_controller_scene_asset.clone(), device, camera_buffers);
 
         let ray_scene_asset = {
             let asset = asset_manager.open(c"meshes/ray.glb").expect("Failed to load 'ray.glb'");
             Arc::new(GltfAsset::new("Ray".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
-        let ray_scene_instance = GltfInstance::new(ray_scene_asset.clone(), device);
+        let ray_scene_instance = GltfInstance::new(ray_scene_asset.clone(), device, camera_buffers);
 
         let pointer_scene_asset = {
             let asset = asset_manager.open(c"meshes/pointer.glb").expect("Failed to load 'pointer.glb'");
             Arc::new(GltfAsset::new("Pointer".to_string(), asset, device, gltf_unlit_translucent_pipeline.clone(), gltf_unlit_translucent_no_cull_pipeline.clone()))
         };
-        let pointer_scene_instance = GltfInstance::new(pointer_scene_asset.clone(), device);
+        let pointer_scene_instance = GltfInstance::new(pointer_scene_asset.clone(), device, camera_buffers);
 
         let spawn_matrix = scene_instance.find_spawnpoint_transform();
         if let Some(spawn_matrix) = &spawn_matrix {
@@ -344,11 +345,8 @@ impl Scene {
             }
         };
 
-        if let Some(ref skin) = *skin {
-            scene.record_with_transform_override_texture(graph, draw_payload, controller_matrix, skin.texture.clone());
-        } else {
-            scene.record_with_transform(graph, draw_payload, controller_matrix);
-        }
+
+        scene.record_with_transform(graph, draw_payload, controller_matrix);
         if let Some(ray_transform) = ray_transform {
             self.assets.ray_scene_instance.record_with_transform(graph, draw_payload, &ray_transform);
         }

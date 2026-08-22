@@ -129,7 +129,8 @@ impl InputState {
         }
 
         if let Ok(state) = self.actions.left_thumbstick.state(session, xr::Path::NULL) {
-            movement[1] = -state.current_state.y; // for some reason down on the thumbstick makes y positive? idk
+            // my stick drift is actually so bad I can't test with this enabled
+            // movement[1] = -state.current_state.y; // for some reason down on the thumbstick makes y positive? idk
         }
 
         let mut right_click_state = false;

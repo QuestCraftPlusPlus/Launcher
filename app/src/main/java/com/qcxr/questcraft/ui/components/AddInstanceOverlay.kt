@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,7 +28,7 @@ fun AddInstanceOverlay(
     onDismiss: () -> Unit,
     onCreate: (name: String, version: String, loader: String) -> Unit
 ) {
-    var instanceName by remember { mutableStateOf("") }
+    var instanceName by remember { mutableStateOf(TextFieldValue(text = "")) }
     var selectedVersion by remember { mutableStateOf("1.20.1") }
     var selectedLoader by remember { mutableStateOf("Fabric") }
 
@@ -62,7 +62,7 @@ fun AddInstanceOverlay(
                 
                 Text(text = stringResource(R.string.instance_name), color = TextSecondary, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
+                XrOutlinedTextField(
                     value = instanceName,
                     onValueChange = { instanceName = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -128,10 +128,10 @@ fun AddInstanceOverlay(
                     Spacer(modifier = Modifier.width(8.dp))
                     
                     Button(
-                        onClick = { onCreate(instanceName, selectedVersion, selectedLoader) },
+                        onClick = { onCreate(instanceName.text, selectedVersion, selectedLoader) },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
                         shape = RoundedCornerShape(4.dp),
-                        enabled = instanceName.isNotBlank()
+                        enabled = instanceName.text.isNotBlank()
                     ) {
                         Text(text = stringResource(R.string.create), color = Color.White)
                     }

@@ -1,3 +1,5 @@
+use std::cmp::PartialEq;
+use egui::{remap, TextStyle};
 use {
     std::{
         time::{Instant, Duration},
@@ -8,14 +10,16 @@ use {
     crate::{
         jni_state::{self, JniContext},
         render::{
-            renderer::{self, PollError, Renderer, WaitError},
+            renderer::{self, PollError, Renderer, WaitError, RenderingError, XrCameraUBO},
             Swapchain
         },
         stage::Stage,
         scene::scene::{Scene, Skin, SkinType},
         input::{InputState, ExtractedInputs, Hand},
         instance::XrInstance,
-        surface::{Surface, SurfaceManager, SurfaceTexture}
+        surface::{AndroidSurface, SurfaceManager, SurfaceTexture},
+        egui::Egui,
+        keyboard::Keyboard,
     },
     jni::{
         Env
@@ -23,18 +27,19 @@ use {
     glam::{Mat4, Quat, Vec2, Vec3},
     ndk::asset::AssetManager,
     ndk_sys::{AAssetManager, AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MOVE, AMOTION_EVENT_ACTION_UP},
-    openxr::{self as xr, EnvironmentBlendMode, FrameState, ViewConfigurationType},
+    openxr::{self as xr, EnvironmentBlendMode, FrameState, ViewConfigurationType, Posef},
     vk_graph::{
         driver::{
-            ash::vk::{self, BufferUsageFlags},
-            buffer::Buffer,
+            ash::vk::{self, BufferUsageFlags, DeviceSize},
+            buffer::{Buffer, BufferInfo},
             image::{Image, ImageInfoBuilder},
         },
         pool::hash::HashPool,
         Graph,
     },
-    log::info,
+    log::{info, error},
 };
+use crate::geometry::RaycastHit;
 
 pub struct XrSession {
     pub(crate) running: bool,
@@ -43,8 +48,17 @@ pub struct XrSession {
     pub frame_stream: xr::FrameStream<xr::Vulkan>,
 }
 
+pub struct RecenterInfo {
+    pub pose_in_previous_space: Posef,
+    pub reference_space_type: xr::ReferenceSpaceType,
+}
+
+pub enum PollResult {
+    Recenter(RecenterInfo),
+}
+
 impl XrSession {
-    pub fn poll(&mut self, instance: &mut XrInstance) -> Result<(), PollError> {
+    pub fn poll(&mut self, instance: &mut XrInstance) -> Result<Option<PollResult>, PollError> {
         while let Some(event) = XrInstance::poll_event(instance).unwrap() {
             use xr::Event::*;
             match event {
@@ -76,18 +90,35 @@ impl XrSession {
                 EventsLost(e) => {
                     log::error!("lost {} events", e.lost_event_count());
                 }
+                ReferenceSpaceChangePending(e) => {
+                    return Ok(Some(PollResult::Recenter(RecenterInfo {
+                        pose_in_previous_space: e.pose_in_previous_space(),
+                        reference_space_type: e.reference_space_type(),
+                    })))
+                }
                 _ => {}
             }
         };
-        Ok(())
+        Ok(None)
     }
 
     pub fn wait_frame(&mut self) -> Result<FrameState, WaitError> {
-        let xr_frame_state = self.frame_wait.wait().map_err(|_err| {
-            WaitError::DriverError
-        })?;
+        let xr_frame_state = match self.frame_wait.wait() {
+            Ok(state) => state,
+            Err(xr::sys::Result::ERROR_SESSION_NOT_RUNNING) => {
+                self.running = false;
+                return Err(WaitError::Sleeping);
+            }
+            Err(err) => {
+                error!("Failed to wait for frame {:?}", err);
+                return Err(WaitError::DriverError);
+            }
+        };
 
-        self.frame_stream.begin().unwrap();
+        if let Err(xr::sys::Result::ERROR_SESSION_NOT_RUNNING) = self.frame_stream.begin() {
+            self.running = false;
+            return Err(WaitError::Sleeping);
+        }
 
         if !xr_frame_state.should_render {
             self.frame_stream.end(
@@ -107,7 +138,8 @@ pub struct XrContext {
     pub queue_family_index: u32, // this is like primarily graphics, but it makes sense to force it into the "xr context" because the xr context is inherently tied to it
     pub session: XrSession,
     pub swapchain: Swapchain,
-    pub stage: xr::Space,
+    pub stage_space: xr::Space,
+    pub view_space: xr::Space,
 }
 
 impl XrContext {
@@ -123,7 +155,10 @@ impl XrContext {
         let swapchain = Swapchain::new(&instance, &session);
 
         let stage = session
-            .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
+            .create_reference_space(xr::ReferenceSpaceType::STAGE, Posef::IDENTITY)
+            .unwrap();
+        let view = session
+            .create_reference_space(xr::ReferenceSpaceType::VIEW, Posef::IDENTITY)
             .unwrap();
 
         XrContext {
@@ -133,10 +168,11 @@ impl XrContext {
                 session,
                 frame_wait,
                 frame_stream,
-                running: true,
+                running: false,
             },
             swapchain,
-            stage,
+            stage_space: stage,
+            view_space: view,
         }
     }
 }
@@ -162,23 +198,59 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
     let mut context = XrContext::new(Arc::clone(&ctx));
     let mut renderer = Renderer::new(&context, internal_files_directory.as_path());
+    let mut egui = Egui::new(&context.instance.device, &asset_manager);
+    egui.ctx.set_theme(egui::Theme::Light);
+    {
+        let mut symbol_asset = asset_manager.open(c"fonts/symbols.ttf")
+            .expect("Failed to load symbols font");
+        let font_bytes = symbol_asset.buffer().unwrap().to_vec();
+
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "keyboard-symbols".to_owned(),
+            Arc::new(egui::FontData::from_owned(font_bytes)),
+        );
+
+        fonts.families
+            .get_mut(&egui::FontFamily::Proportional)
+            .unwrap()
+            .push("keyboard-symbols".to_owned());
+
+        egui.ctx.set_fonts(fonts);
+    }
     let input = InputState::new(&context.instance, &context.session.session);
-    let mut scene = Scene::load(&context.instance.device, &asset_manager);
+
+    let mut mapped_camera_buffers = Vec::new();
+    let mut camera_buffers = Vec::new();
+    (0..context.swapchain.enumerate_images().unwrap().len()).for_each(|_| {
+        let mut buffer = Buffer::create(&context.instance.device, BufferInfo::builder()
+            .host_writable(true)
+            .size(size_of::<XrCameraUBO>() as DeviceSize)
+            .usage(BufferUsageFlags::UNIFORM_BUFFER))
+            .expect("Failed to allocate camera buffer");
+        mapped_camera_buffers.push(buffer.mapped_slice_mut().as_mut_ptr() as *mut XrCameraUBO);
+        camera_buffers.push(Arc::new(buffer));
+    });
+
+    let mut scene = Scene::load(&context.instance.device, &camera_buffers, &asset_manager);
+    let mut keyboard = Keyboard::new(&context.instance.device, &camera_buffers, &asset_manager, ctx.clone(), vk::Extent2D{width: 1280, height: 512});
     // if you're looking how to load assets n shit, it's in the scene ^^
 
     let names: Vec<&str> = scene.assets.animated_asset.animation_names().collect();
     info!("Animations: {:?}", names);
     let mut animator = scene.assets.animated_instance.create_animation_player("Idle", true).expect("Failed to get Idle animator");
 
-    let mut surface = Surface::new(env, 1920, 1080);
+    let mut surface = AndroidSurface::new(env, 1920, 1080);
     ctx.set_surface(env, &surface);
 
     let surface_index = scene.surface_index.expect("Scene mesh must contain a node tagged as a surface! (see custom properties in Blender)");
     let surface_node = &scene.assets.scene_instance.nodes[surface_index];
-    let surface_mesh = &scene.assets.scene_asset.meshes[surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)")].primitives[0];
     let surface_transform = surface_node.global_transform;
 
-    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, &scene.assets.scene_asset, surface_mesh);
+    let surface_manager = SurfaceManager::new(&asset_manager, &context.instance.device, scene.assets.scene_asset.clone(), [
+        surface_node.mesh_index.expect("Scene node tagged as surface doesn't contain a mesh (what are we supposed to render the texture onto??)"),
+        0
+    ]);
 
     let spawn = scene.spawn_point.unwrap_or(Mat4::IDENTITY);
     let (_, rotation, translation) = spawn.to_scale_rotation_translation();
@@ -188,6 +260,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
     let mut last_surface_texture: Option<Arc<SurfaceTexture>> = None;
     let mut previous_inputs: Option<ExtractedInputs> = None;
     let mut primary_hand = Hand::Right;
+    let mut was_running = false;
 
     info!("Starting!!");
     let mut last_frame_time = Instant::now();
@@ -196,13 +269,18 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let delta_time = now.duration_since(last_frame_time).as_secs_f32();
         last_frame_time = now;
 
-        context.session.poll(&mut context.instance).expect("Failed to poll session");
+        let result = context.session.poll(&mut context.instance).expect("Failed to poll events");
+        if !context.session.running {
+            was_running = false;
+            sleep(Duration::from_millis(10));
+            continue;
+        }
 
         let active_frame = match renderer.begin_frame(&mut context) {
             Ok(frame) => frame,
             Err(err) => {
                 match err {
-                    renderer::RenderingError::Sleeping => {
+                    RenderingError::Sleeping => {
                         sleep(Duration::from_millis(100));
                         log::trace!("sleeping...")
                     },
@@ -212,18 +290,21 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
             }
         };
 
-        old_surface_textures.retain(|texture: &Arc<SurfaceTexture>| {
-            Arc::strong_count(&texture.image) > 1
-        });
+        if context.session.running && !was_running {
+            was_running = true;
+            keyboard.adjust_position(&stage, context.view_space.locate(&context.stage_space, active_frame.predicted_display_time).unwrap().pose.position.y);
+        }
+        if let Some(PollResult::Recenter(_info)) = result {
+            keyboard.adjust_position(&stage, context.view_space.locate(&context.stage_space, active_frame.predicted_display_time).unwrap().pose.position.y);
+        }
+        keyboard.hidden = jni_state::KEYBOARD_HIDDEN.load(Ordering::Relaxed);
 
-        ctx.request_ui_render(env); // hope to fuck this finishes before we need the texture
-
-        let inputs = input.extract(&context.session.session, &context.stage, active_frame.predicted_display_time);
+        let inputs = input.extract(&context.session.session, &context.stage_space, active_frame.predicted_display_time);
 
         let (_, views) = context.session.session.locate_views(
             ViewConfigurationType::PRIMARY_STEREO,
             active_frame.predicted_display_time,
-            &context.stage,
+            &context.stage_space,
         ).expect("Failed to locate tracking views");
 
         let left_eye_rot: mint::Quaternion<f32> = views[0].pose.orientation.into();
@@ -240,6 +321,9 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         if let Some(surface_texture) = surface_texture {
             last_surface_texture = Some(Arc::new(surface_texture));
         }
+        old_surface_textures.retain(|texture: &Arc<SurfaceTexture>| {
+            Arc::strong_count(&texture.image) > 1
+        });
 
         if let Some(data) = jni_state::PENDING_SKIN_IMAGE.lock().unwrap().take() {
             match image::load_from_memory(&data.png_bytes) {
@@ -275,6 +359,14 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
                 }
                 Err(err) => log::error!("Bad skin supplied from java-side: {:?}", err)
             }
+            
+            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
+                scene.assets.animated_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.left_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.slim_left_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.right_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+                scene.assets.slim_right_controller_scene_instance.override_textures(&skin.texture, &camera_buffers);
+            }
         }
 
         animator.advance(delta_time, &scene.assets.animated_asset.animations[animator.clip_index]);
@@ -303,7 +395,7 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
 
         let hand_inputs = if primary_hand == Hand::Right {
             inputs.right
-        } else  {
+        } else {
             inputs.left
         };
         let previous_hand_inputs = previous_inputs.map(|inputs| {
@@ -316,43 +408,60 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         let mut pointer_transform = None;
 
         if let Some(ref transform) = hand_inputs.matrix {
-            let transform = stage_to_world * transform * Mat4::from_translation(Vec3::new(0.0,0.0,0.127));
-            let hit = surface_manager.raycast_uv(transform, surface_transform, -Vec3::Z);
+            let transform = stage_to_world * transform * Mat4::from_translation(Vec3::new(0.0, 0.0, 0.127));
+            let primary_surface_raycast = surface_manager.raycast_uv(transform, surface_transform, -Vec3::Z);
+            let raycasts = [
+                primary_surface_raycast,
+                if !keyboard.hidden { keyboard.surface_manager.raycast_uv(transform, keyboard.transform * keyboard.primitive_transform, -Vec3::Z) } else { None },
+            ];
+            let hit = RaycastHit::closest_hit(&raycasts);
 
-            if let Some(hit) = hit {
+            if let Some((hit, index)) = hit {
                 let uv = hit.uv;
+                // 0.25 @ 0.5, 1 @ 6.5
+                let scale = remap(hit.distance, 0.25f32..=6f32, 0.15f32..=1.0f32 );
                 pointer_transform = Some(Mat4::from_scale_rotation_translation(
-                    Vec3::ONE,
-                    Quat::from_rotation_arc(Vec3::Y, hit.world_normal.normalize()),
-                    hit.world_position
+                    Vec3::ONE * scale,
+                    Quat::from_rotation_arc(Vec3::Y, hit.normal.normalize()),
+                    hit.position + hit.normal * 0.01f32,
                 ));
 
                 if let Some(previous_hand_inputs) = previous_hand_inputs {
-                    publish_inputs_for_pointer(env, &ctx, 0, previous_hand_inputs.click, hand_inputs.click, uv);
+                    if index == 0 {
+                        publish_inputs_for_pointer(env, &ctx, 0, previous_hand_inputs.click, hand_inputs.click, uv);
+                    } else if !keyboard.hidden && index == 1 {
+                        keyboard.publish_inputs(previous_hand_inputs.click, hand_inputs.click, uv);
+                    }
                 }
+            } else {
+                keyboard.publish_pointer_leave(); // todo: figure out *when* the pointer leaves
             }
         }
 
-        let payload = renderer::FramePayload {
-            view_matrices: [
+        unsafe {
+            let mapped_camera_buffer = mapped_camera_buffers[renderer.frame_in_flight];
+            (*mapped_camera_buffer).view_matrices = [
                 renderer::view_transform(views[0]) * world_to_stage,
                 renderer::view_transform(views[1]) * world_to_stage,
-            ],
-            projection_matrices: [
+            ];
+            (*mapped_camera_buffer).projection_matrices = [
                 renderer::projection_transform(views[0]),
                 renderer::projection_transform(views[1]),
-            ],
+            ];
+        }
+
+        let payload = renderer::FramePayload {
+            camera_buffer: &camera_buffers[renderer.frame_in_flight],
             xr_views: &views,
         };
 
         let result = renderer.draw(&mut context, active_frame, payload, |graph, draw_payload| {
             scene.record(graph, draw_payload);
-            if let Some(ref skin) = *scene.assets.skin.read().unwrap() {
-                scene.assets.animated_instance.record_with_transform_override_texture(graph, draw_payload, &Mat4::IDENTITY, skin.texture.clone());
-            }
+            scene.assets.animated_instance.record_with_transform(graph, draw_payload, &Mat4::IDENTITY);
             if let Some(ref last_surface_texture) = last_surface_texture {
-                surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, surface_transform);
+                surface_manager.record_with_transform(graph, last_surface_texture.image.clone(), draw_payload, &surface_transform);
             }
+            keyboard.record(env, &mut egui, graph, draw_payload);
             if let Some(ref transform) = pointer_transform {
                 scene.record_pointer(graph, draw_payload, transform);
             }
@@ -386,6 +495,8 @@ pub fn main_loop(env: &mut Env<'_>, ctx: Arc<JniContext>, raw_asset_manager: *mu
         if let Some(ref last_surface_texture) = last_surface_texture {
             old_surface_textures.push(Arc::clone(last_surface_texture));
         }
+
+        ctx.request_ui_render(env); // hope to fuck this finishes before we need the texture
     }
     info!("Exiting...");
 

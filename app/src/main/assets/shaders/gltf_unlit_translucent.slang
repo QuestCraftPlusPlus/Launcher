@@ -119,7 +119,6 @@ float4 fragment_main(VertexStageOutput input) : SV_Target {
             tex_albedo = float4(0.0);
         }
 
-        clip(tex_albedo.a - 0.1);
         albedo *= tex_albedo;
     }
 

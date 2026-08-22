@@ -166,11 +166,16 @@ abstract class CompileSlangShadersTask : DefaultTask() {
 
                     val compileProcess = ProcessBuilder(
                         "slangc", file.absolutePath, "-target", "spirv", "-o", outputFile.absolutePath
-                    ).inheritIO().start()
+                    ).redirectErrorStream(true).start()
+
+                    val output = compileProcess.inputStream.bufferedReader().readText()
+                    if (output.isNotBlank()) {
+                        logger.lifecycle(output.trim())
+                    }
 
                     val exitCode = compileProcess.waitFor()
                     if (exitCode != 0) {
-                        throw GradleException("slangc failed compiling ${file.name} with exit code $exitCode")
+                        throw GradleException("slangc failed compiling ${file.name} with exit code $exitCode, see log for details")
                     }
                 }
             }

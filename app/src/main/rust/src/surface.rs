@@ -1,25 +1,27 @@
 use {
     crate::{
+        geometry::{self, RaycastHit},
         render::renderer::{self, DrawPayload},
-        scene::gltf_model::{self, GltfPrimitive, GltfAsset}
+        scene::gltf_model::{self, GltfAsset}
     },
     bytemuck::{Pod, Zeroable, bytes_of},
-    glam::{Mat4, Vec2, Vec3},
+    glam::{Mat4, Vec3},
     jni::{Env, objects::JObject, refs::Global},
     ndk::asset::AssetManager,
-    ndk_sys::{AHardwareBuffer, AHardwareBuffer_acquire, AHardwareBuffer_release, AImageReader, AImageReader_acquireLatestImage, AImageReader_delete, AImageReader_getWindow, AImageReader_newWithUsage, AImage_delete, AImage_getHardwareBuffer, ANativeWindow_toSurface, media_status_t},
+    ndk_sys::{AHardwareBuffer, AHardwareBuffer_UsageFlags, AHardwareBuffer_acquire, AHardwareBuffer_release, AIMAGE_FORMATS, AImageReader, AImageReader_acquireLatestImage, AImageReader_delete, AImageReader_getWindow, AImageReader_newWithUsage, AImage_delete, AImage_getHardwareBuffer, ANativeWindow_toSurface, media_status_t},
     std::sync::Arc,
     vk_graph::{
+        Graph, LoadOp, StoreOp,
         driver::{
             ash::vk::{self, Format, ImageViewType, IndexType, PrimitiveTopology},
             device::Device,
-            graphics::{DepthStencilInfo, GraphicsPipeline, GraphicsPipelineInfo},
+            graphics::{DepthStencilInfo, GraphicsPipeline, GraphicsPipelineInfo, BlendInfo},
             image::{Image, ImageInfo, ImageViewInfoBuilder, SampleCount},
             shader::{SamplerInfoBuilder, Shader},
-            sync::AccessType
+            sync::AccessType,
         },
-        Graph, LoadOp, StoreOp
-    }
+        node::AnyImageNode,
+    },
 };
 
 pub struct SurfaceTexture {
@@ -39,7 +41,7 @@ impl Drop for SurfaceTexture {
     }
 }
 
-pub struct Surface {
+pub struct AndroidSurface {
     pub extent: vk::Extent3D,
     pub image_reader: *mut AImageReader,
     pub java_surface: Global<JObject<'static>>,
@@ -55,16 +57,15 @@ fn find_memory_type_index(device: &Device, type_bits: u32, properties: vk::Memor
     panic!("Failed to find suitable memory type for AHardwareBuffer, properties: {:?}", mem_properties);
 }
 
-impl Surface {
+impl AndroidSurface {
     pub fn new(env: &mut Env<'_>, width: u32, height: u32) -> Self {
-
         let image_reader = unsafe {
             let mut image_reader = std::ptr::null_mut();
             let status = AImageReader_newWithUsage(
                 width as i32,
                 height as i32,
-                0x00000001, // this is format RBGA_8888, see https://developer.android.com/reference/android/graphics/ImageFormat for constant values
-                (1u64 << 8) | (1u64 << 9), // this is usage GPU_SAMPLED_IMAGE, see https://developer.android.com/ndk/reference/group/a-hardware-buffer for constant values
+                AIMAGE_FORMATS::AIMAGE_FORMAT_RGBA_8888.0 as i32,
+                AHardwareBuffer_UsageFlags::AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE.0 as u64 | AHardwareBuffer_UsageFlags::AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER.0 as u64,
                 4,
                 &mut image_reader
             );
@@ -228,7 +229,7 @@ impl Surface {
     }
 }
 
-impl Drop for Surface {
+impl Drop for AndroidSurface {
     fn drop(&mut self) {
         unsafe {
             if !self.image_reader.is_null() {
@@ -238,26 +239,20 @@ impl Drop for Surface {
     }
 }
 
-pub struct SurfaceManager<'a> {
+pub struct SurfaceManager {
     pub pipeline: Arc<GraphicsPipeline>,
-    pub scene: &'a GltfAsset,
-    pub primitive: &'a GltfPrimitive,
+    pub scene: Arc<GltfAsset>,
+    pub primitive_index: [usize; 2],
 }
 
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct SurfacePushConstants {
-    model_transform: Mat4,
+    pub(crate) model_transform: Mat4,
 }
 
-pub struct RaycastHit {
-    pub uv: Vec2,
-    pub world_position: Vec3,
-    pub world_normal: Vec3,
-}
-
-impl<'a> SurfaceManager<'a> {
-    pub fn new(asset_manager: &AssetManager, device: &Device, scene: &'a GltfAsset, primitive: &'a GltfPrimitive) -> Self {
+impl SurfaceManager {
+    pub fn new(asset_manager: &AssetManager, device: &Device, scene: Arc<GltfAsset>, primitive_index: [usize; 2]) -> Self {
         let pipeline = Arc::new({
             let mut asset = asset_manager.open(c"shaders/gltf_surface.spv").expect("Failed to load 'gltf_surface' shader");
             let spv_bytes = asset.buffer().unwrap();
@@ -265,6 +260,7 @@ impl<'a> SurfaceManager<'a> {
             GraphicsPipeline::create(device, GraphicsPipelineInfo::builder()
                 .topology(PrimitiveTopology::TRIANGLE_LIST)
                 .cull_mode(vk::CullModeFlags::NONE)
+                .blend(BlendInfo::ALPHA)
                 .samples(renderer::MSAA_COUNT)
                 .min_sample_shading(0.5), [
                 Shader::builder()
@@ -309,15 +305,16 @@ impl<'a> SurfaceManager<'a> {
 
         Self {
             scene,
-            primitive,
+            primitive_index,
             pipeline,
         }
     }
 
-    // this uses the Moller-Trumbore intersection algorithm
+    // this transforms the raycast to world space from local space after it runs
     pub fn raycast_uv(&self, controller_world_matrix: Mat4, surface_world_matrix: Mat4, ray_direction: Vec3) -> Option<RaycastHit> {
-        let vertices = self.primitive.cpu_vertex_buffer.as_ref()?;
-        let indices = self.primitive.cpu_index_buffer.as_ref()?;
+        let prim = &self.scene.meshes[self.primitive_index[0]].primitives[self.primitive_index[1]];
+        let vertices = prim.cpu_vertex_buffer.as_ref()?;
+        let indices = prim.cpu_index_buffer.as_ref()?;
 
         let ray_origin_world = controller_world_matrix.transform_point3(Vec3::ZERO);
         let ray_direction_world = controller_world_matrix.transform_vector3(ray_direction).normalize();
@@ -326,83 +323,27 @@ impl<'a> SurfaceManager<'a> {
         let ray_origin = world_to_mesh_local.transform_point3(ray_origin_world);
         let ray_direction = world_to_mesh_local.transform_vector3(ray_direction_world).normalize();
 
-        let mut closest_t = f32::INFINITY;
-
-        let mut closest_local_pos = Vec3::ZERO;
-        let mut closest_local_normal = Vec3::ZERO;
-        let mut closest_uv = Vec2::ZERO;
-        let mut hit_found = false;
-
-        for chunk in indices.chunks_exact(3) {
-            let v0 = &vertices[chunk[0] as usize];
-            let v1 = &vertices[chunk[1] as usize];
-            let v2 = &vertices[chunk[2] as usize];
-
-            let p0 = Vec3::from_array(v0.position);
-            let p1 = Vec3::from_array(v1.position);
-            let p2 = Vec3::from_array(v2.position);
-
-            let edge1 = p1 - p0;
-            let edge2 = p2 - p0;
-            let h = ray_direction.cross(edge2);
-            let a = edge1.dot(h);
-
-            if a.abs() < f32::EPSILON { continue; }
-
-            let f = 1.0 / a;
-            let s = ray_origin - p0;
-            let u = f * s.dot(h);
-
-            if u < 0.0 || u > 1.0 { continue; }
-
-            let q = s.cross(edge1);
-            let v = f * ray_direction.dot(q);
-
-            if v < 0.0 || u + v > 1.0 { continue; }
-
-            if u + v > 1.0 { continue; }
-
-            let t = f * edge2.dot(q);
-
-            if t > f32::EPSILON && t < closest_t {
-                closest_t = t;
-                hit_found = true;
-
-                let w0 = 1.0 - u - v;
-                let w1 = u;
-                let w2 = v;
-
-                let uv0 = Vec2::from_array(v0.uv);
-                let uv1 = Vec2::from_array(v1.uv);
-                let uv2 = Vec2::from_array(v2.uv);
-                closest_uv = uv0 * w0 + uv1 * w1 + uv2 * w2;
-
-                closest_local_pos = ray_origin + ray_direction * t;
-
-                let n0 = Vec3::from_array(v0.normal);
-                let n1 = Vec3::from_array(v1.normal);
-                let n2 = Vec3::from_array(v2.normal);
-                closest_local_normal = (n0 * w0 + n1 * w1 + n2 * w2).normalize();
-            }
-        }
-
-        if hit_found {
-            let world_position = surface_world_matrix.transform_point3(closest_local_pos);
+        geometry::raycast_uv(vertices, indices, ray_origin, ray_direction).map(|hit| {
+            let world_position = surface_world_matrix.transform_point3(hit.position);
             let normal_matrix = world_to_mesh_local.transpose();
-            let world_normal = normal_matrix.transform_vector3(closest_local_normal).normalize();
+            let world_normal = normal_matrix.transform_vector3(hit.normal).normalize();
 
-            Some(RaycastHit {
-                uv: closest_uv,
-                world_position,
-                world_normal,
-            })
-        } else {
-            None
-        }
+            RaycastHit {
+                position: world_position,
+                normal: world_normal,
+                uv: hit.uv,
+                distance: ray_origin_world.distance(world_position),
+            }
+        })
     }
 
-    pub fn record_with_transform(&self, graph: &mut Graph, surface_texture: Arc<Image>, draw_payload: &DrawPayload, transform: Mat4) {
-        let push_consts = SurfacePushConstants { model_transform: transform };
+    pub fn record_with_transform(&self, graph: &mut Graph, surface_texture: Arc<Image>, draw_payload: &DrawPayload, transform: &Mat4) {
+        let image_node = graph.bind_resource(surface_texture);
+        self.record_with_transform_bound(graph, image_node.into(), draw_payload, transform);
+    }
+
+    pub fn record_with_transform_bound(&self, graph: &mut Graph, surface_node: AnyImageNode, draw_payload: &DrawPayload, transform: &Mat4) {
+        let push_consts = SurfacePushConstants { model_transform: *transform };
 
         let srgb_texture_view = ImageViewInfoBuilder::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -412,12 +353,12 @@ impl<'a> SurfaceManager<'a> {
             .mip_level_count(1)
             .build();
 
-        let image_node = graph.bind_resource(surface_texture);
         let index_node = graph.bind_resource(self.scene.index_buffer.clone());
         let vertex_node = graph.bind_resource(self.scene.vertex_buffer.clone());
-        let index_count = self.primitive.index_count;
-        let first_index = self.primitive.first_index;
-        let base_vertex = self.primitive.base_vertex;
+        let prim = &self.scene.meshes[self.primitive_index[0]].primitives[self.primitive_index[1]];
+        let index_count = prim.index_count;
+        let first_index = prim.first_index;
+        let base_vertex = prim.base_vertex;
 
         let mut cmd_graph = graph.begin_cmd()
             .debug_name("Surface")
@@ -430,13 +371,13 @@ impl<'a> SurfaceManager<'a> {
             .resource_access(index_node, AccessType::IndexBuffer)
             .resource_access(vertex_node, AccessType::VertexBuffer);
 
-        cmd_graph.set_shader_subresource_access((0,1), image_node, srgb_texture_view, AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer);
+        cmd_graph.set_shader_subresource_access((0,1), surface_node, srgb_texture_view, AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer);
         cmd_graph
             .record_cmd(move |cmd| {
                 cmd.bind_index_buffer(index_node, 0, IndexType::UINT32)
                     .bind_vertex_buffer(0, vertex_node, 0)
                     .push_constants(0, bytes_of(&push_consts))
                     .draw_indexed(index_count, 1, first_index, base_vertex, 0);
-        }).end_cmd();
+            }).end_cmd();
     }
 }

@@ -1,5 +1,5 @@
 use {
-    crate::surface::Surface,
+    crate::surface::AndroidSurface,
     ndk_sys::_bindgen_ty_22,
     jni::{
         JavaVM, Env, jni_str, jni_sig,
@@ -27,6 +27,7 @@ use {
 
 pub static SHOULD_STOP_JNI: AtomicBool = AtomicBool::new(false);
 pub static PENDING_SKIN_IMAGE: Mutex<Option<SkinData>> = Mutex::new(None);
+pub static KEYBOARD_HIDDEN: AtomicBool = AtomicBool::new(true);
 
 pub struct SkinData {
     pub png_bytes: Vec<u8>,
@@ -42,6 +43,8 @@ pub struct JniContext {
     method_set_surface: JStaticMethodID,
     method_process_pointer_event: JStaticMethodID,
     method_request_ui_render: JStaticMethodID,
+    method_send_text: JStaticMethodID,
+    method_delete_character: JStaticMethodID,
 }
 
 impl JniContext {
@@ -52,6 +55,8 @@ impl JniContext {
         let method_system_exit = env.get_static_method_id(&jni_bridge_class, jni_str!("performSystemExit"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
         let method_process_pointer_event = env.get_static_method_id(&jni_bridge_class, jni_str!("processPointerEvent"), RuntimeMethodSignature::from_str("(IIFF)V").unwrap().method_signature()).unwrap();
         let method_request_ui_render = env.get_static_method_id(&jni_bridge_class, jni_str!("requestUiRender"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
+        let method_send_text = env.get_static_method_id(&jni_bridge_class, jni_str!("sendText"), RuntimeMethodSignature::from_str("(Ljava/lang/String;)V").unwrap().method_signature()).unwrap();
+        let method_delete_character = env.get_static_method_id(&jni_bridge_class, jni_str!("deleteCharacter"), RuntimeMethodSignature::from_str("()V").unwrap().method_signature()).unwrap();
 
         JniContext {
             jvm,
@@ -61,7 +66,9 @@ impl JniContext {
             method_system_exit,
             method_set_surface,
             method_process_pointer_event,
-            method_request_ui_render
+            method_request_ui_render,
+            method_send_text,
+            method_delete_character,
         }
     }
 
@@ -87,7 +94,7 @@ impl JniContext {
         }
     }
 
-    pub fn set_surface(&self, env: &mut Env<'_>, surface: &Surface) {
+    pub fn set_surface(&self, env: &mut Env<'_>, surface: &AndroidSurface) {
         let java_surface = jni::sys::jvalue { l: surface.java_surface.as_raw() };
         let width = jni::sys::jvalue { i: surface.extent.width as _ };
         let height = jni::sys::jvalue { i: surface.extent.height as _ };
@@ -114,6 +121,30 @@ impl JniContext {
                 ReturnType::Primitive(Void),
                 &[pointer_id, action_val, norm_x, norm_y]
             ).expect("Failed to process pointer event");
+        }
+    }
+
+    pub fn send_text(&self, env: &mut Env<'_>, text: &str) {
+        let text_jstring = env.new_string(text).unwrap();
+        let text_jstring = jni::sys::jvalue { l: text_jstring.as_raw() };
+        unsafe {
+            env.call_static_method_unchecked(
+                &self.jni_bridge_class,
+                &self.method_send_text,
+                ReturnType::Primitive(Void),
+                &[text_jstring]
+            ).expect("Failed to send text");
+        }
+    }
+
+    pub fn delete_character(&self, env: &mut Env<'_>) {
+        unsafe {
+            env.call_static_method_unchecked(
+                &self.jni_bridge_class,
+                &self.method_delete_character,
+                ReturnType::Primitive(Void),
+                &[],
+            ).expect("Failed to delete character");
         }
     }
 
