@@ -726,8 +726,8 @@ impl GltfAsset {
             if let Some(extras) = mesh.extras() {
                 let json_str = extras.get();
                 if let Ok(ui_props) = serde_json::from_str::<Extras>(json_str) {
-                    if ui_props.is_ui_surface.is_some() {
-                        info!("Found UI surface mesh: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
+                    if ui_props.is_ui_surface.is_some() || ui_props.is_grab_bar.is_some() {
+                        info!("Found special mesh: {:?}", node.name().or(node.mesh().and_then(|m| m.name())));
                         specials.push(nodes.len());
                         node_extras.insert(nodes.len(), ui_props);
                     }
@@ -893,7 +893,7 @@ impl GltfInstance {
         self.descriptor_sets = descriptor_sets;
     }
     
-    // note: this isn't really normally necessary to use but it's here in case we'd ever want to reset the textures for whatever reason.
+    // note: this isn't really normally necessary to use, but it's here in case we'd ever want to reset the textures for whatever reason.
     pub fn recreate_descriptor_sets(&mut self, camera_buffers: &Vec<Arc<Buffer>>) {
         let mut descriptor_sets = Vec::new();
 
@@ -1074,6 +1074,17 @@ impl GltfInstance {
             None
         })
     }
+    
+    pub fn find_grab_bar_index(&self) -> Option<NodeIndex> {
+        self.asset.specials.iter().find_map(|&idx| {
+            if let Some(extras) = self.asset.node_extras.get(&idx) {
+                if extras.is_grab_bar == Some(1) {
+                    return Some(idx)
+                }
+            }
+            None
+        })
+    }
 }
 
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1162,4 +1173,6 @@ pub struct Extras {
     pub is_ui_surface: Option<i32>,
     #[serde(rename = "is_spawnpoint")]
     pub is_spawnpoint: Option<i32>,
+    #[serde(rename = "is_grab_bar")]
+    pub is_grab_bar: Option<i32>,
 }

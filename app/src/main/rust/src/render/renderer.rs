@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use log::warn;
 use vk_graph::driver::buffer::Buffer;
 use vk_graph::node::{AnyBufferNode, AnyImageNode};
 use {
@@ -57,7 +58,7 @@ pub enum AcquireError {
 }
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum PollError {
-    Exiting, LossPending,
+    Exiting, LossPending, Recenter
 }
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum WaitError {
@@ -97,7 +98,9 @@ impl<'a> Renderer<'a> {
             return Err(Sleeping);
         }
 
-        let frame_state = xr_context.session.wait_frame().map_err(|err| if err == WaitError::Sleeping { Sleeping } else { RenderingError::DriverError })?;
+        let frame_state = xr_context.session.wait_frame().map_err(|err| {
+            if err == WaitError::Sleeping { Sleeping } else { RenderingError::DriverError }
+        })?;
         let (_, swapchain_image_index) = xr_context.swapchain.acquire_image().unwrap();
 
         Ok(ActiveFrame{
@@ -160,7 +163,7 @@ impl<'a> Renderer<'a> {
             active_frame.predicted_display_time,
             EnvironmentBlendMode::OPAQUE,
             &[&xr::CompositionLayerProjection::new()
-                .space(&xr_context.stage)
+                .space(&xr_context.stage_space)
                 .views(&[
                     xr::CompositionLayerProjectionView::new().pose(payload.xr_views[0].pose).fov(payload.xr_views[0].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&xr_context.swapchain).image_array_index(0).image_rect(self.swapchain_rect)),
                     xr::CompositionLayerProjectionView::new().pose(payload.xr_views[1].pose).fov(payload.xr_views[1].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&xr_context.swapchain).image_array_index(1).image_rect(self.swapchain_rect)),

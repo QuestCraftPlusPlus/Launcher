@@ -17,6 +17,8 @@ mod stage;
 mod xr_util;
 mod surface;
 mod egui;
+mod keyboard;
+mod geometry;
 
 #[jni_mangle("com.qcxr.questcraft.JniBridge")]
 pub fn start<'local>(
@@ -40,10 +42,16 @@ pub fn start<'local>(
             .or_else(|| panic_info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("Unknown panic payload");
 
-        let thread_name = std::thread::current().name().unwrap_or("main").to_string();
-        let error = format!("Exception in thread \"{}\": {}\n", thread_name, message);
+        let location_info = if let Some(location) = panic_info.location() {
+            format!("{}:{}:{}", location.file(), location.line(), location.column())
+        } else {
+            "unknown location".to_string()
+        };
 
-        log::error!("!! PANIC !!\n{}", error);
+        let thread_name = std::thread::current().name().unwrap_or("main").to_string();
+        let error = format!("Exception in thread \"{}\" at {}: {}\n", thread_name, location_info, message);
+
+        log::error!("!! PANIC !! {}", error);
     }));
 
     unowned_env.with_env(|env| -> jni::errors::Result<_> {
@@ -72,9 +80,23 @@ pub fn start<'local>(
 
 #[jni_mangle("com.qcxr.questcraft.JniBridge")]
 pub fn stop(
-    mut _unowned_env: EnvUnowned,
+    _unowned_env: EnvUnowned,
 ) {
     jni_state::SHOULD_STOP_JNI.store(true, Ordering::Relaxed);
+}
+
+#[jni_mangle("com.qcxr.questcraft.JniBridge")]
+pub fn show_keyboard(
+    _unowned_env: EnvUnowned,
+) {
+    jni_state::KEYBOARD_HIDDEN.store(false, Ordering::Relaxed);
+}
+
+#[jni_mangle("com.qcxr.questcraft.JniBridge")]
+pub fn hide_keyboard(
+    _unowned_env: EnvUnowned,
+) {
+    jni_state::KEYBOARD_HIDDEN.store(true, Ordering::Relaxed);
 }
 
 #[jni_mangle("com.qcxr.questcraft.JniBridge")]

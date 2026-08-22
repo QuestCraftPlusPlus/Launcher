@@ -11,6 +11,7 @@ use vk_graph::driver::image::{Image, ImageInfo};
 use vk_graph::driver::shader::Shader;
 use vk_graph::driver::sync::AccessType;
 use vk_graph::{Graph, LoadOp, StoreOp};
+use vk_graph::driver::ash::vk::ShaderStageFlags;
 use vk_graph::node::AnyImageNode;
 use vk_graph::pool::hash::HashPool;
 use vk_graph::pool::{Lease, Pool};
@@ -51,9 +52,39 @@ impl Egui {
                 [
                     Shader::builder()
                         .entry_name("vertex_main")
+                        .stage(ShaderStageFlags::VERTEX)
+                        .vertex_input(
+                            [
+                                vk::VertexInputBindingDescription {
+                                    binding: 0,
+                                    stride: size_of::<egui::epaint::Vertex>() as u32,
+                                    input_rate: vk::VertexInputRate::VERTEX,
+                                }
+                            ], [
+                                vk::VertexInputAttributeDescription {
+                                    location: 0,
+                                    binding: 0,
+                                    format: vk::Format::R32G32_SFLOAT,
+                                    offset: 0,
+                                },
+                                vk::VertexInputAttributeDescription {
+                                    location: 1,
+                                    binding: 0,
+                                    format: vk::Format::R32G32_SFLOAT,
+                                    offset: 8,
+                                },
+                                vk::VertexInputAttributeDescription {
+                                    location: 2,
+                                    binding: 0,
+                                    format: vk::Format::R32_UINT,
+                                    offset: 16,
+                                }
+                            ]
+                        )
                         .spirv(spv_bytes),
                     Shader::builder()
                         .entry_name("fragment_main")
+                        .stage(ShaderStageFlags::FRAGMENT)
                         .spirv(spv_bytes)
                 ]
             ).expect("Failed to create egui pipeline")

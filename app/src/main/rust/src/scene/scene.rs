@@ -45,7 +45,7 @@ pub struct Assets {
     pub animated_asset: Arc<GltfAsset>,
     pub animated_instance: GltfInstance,
 
-    // these _asset fields don't really need to be here because GltfInstance holds a reference, but I don't really want to delete them in case we want to add animations to them (which would require an accessible reference to the asset)
+    // these _asset fields don't really need to be here because GltfInstance holds a reference. However, I don't really want to delete them in case we want to add animations to them (which would require an accessible reference to the asset)
     left_controller_scene_asset: Arc<GltfAsset>,
     pub left_controller_scene_instance: GltfInstance,
     right_controller_scene_asset: Arc<GltfAsset>,
